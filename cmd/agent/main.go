@@ -2,27 +2,50 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 	"time"
+
+	"helvilette/pkg/log"
+	"helvilette/pkg/systemd"
 )
 
-const (
-	OthelaURL = "http://localhost:8080/api/v1"
-	NodeID    = "agent-01"
-	PollInterval = 5 * time.Second
-)
+// AgentConfig holds configuration for the agent
+type AgentConfig struct {
+	OthelaURL    string
+	NodeID       string
+	PollInterval time.Duration
+}
 
+// DefaultConfig returns the default agent configuration
+func DefaultConfig() AgentConfig {
+	return AgentConfig{
+		OthelaURL:    "http://localhost:8080/api/v1",
+		NodeID:       "agent-01",
+		PollInterval: 5 * time.Second,
+	}
+}
+
+// Agent represents the Helvilette agent
+type Agent struct {
+	config     AgentConfig
+	lastJobID  string
+	httpClient *http.Client
+}
+
+// Job represents a job from Othela
 type Job struct {
 	JobID           string `json:"job_id"`
 	PlaybookContent string `json:"playbook_content"`
 }
 
+// Report represents the execution report to send back
 type Report struct {
 	NodeID   string          `json:"node_id"`
 	JobID    string          `json:"job_id"`
@@ -30,86 +53,78 @@ type Report struct {
 	TaskLogs json.RawMessage `json:"task_log"`
 }
 
-var lastJobID string
-
-func main() {
-	log.Printf("Helvilette Agent (%s) started given Othela at %s", NodeID, OthelaURL)
-
-	ticker := time.NewTicker(PollInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		pollOthela()
+// NewAgent creates a new agent with the given configuration
+func NewAgent(config AgentConfig) *Agent {
+	return &Agent{
+		config:     config,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-func pollOthela() {
-	// 1. Fetch Job
-	resp, err := http.Get(fmt.Sprintf("%s/sync/%s", OthelaURL, NodeID))
+// Poll fetches a job from Othela and returns it
+func (a *Agent) Poll() (*Job, error) {
+	url := fmt.Sprintf("%s/sync/%s", a.config.OthelaURL, a.config.NodeID)
+	resp, err := a.httpClient.Get(url)
 	if err != nil {
-		log.Printf("[ERROR] Failed to connect to Othela: %v", err)
-		return
+		return nil, fmt.Errorf("failed to connect to Othela: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[ERROR] Othela returned status: %s", resp.Status)
-		return
+		return nil, fmt.Errorf("Othela returned status: %s", resp.Status)
 	}
 
 	var job Job
 	if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
-		log.Printf("[ERROR] Failed to decode job: %v", err)
-		return
+		return nil, fmt.Errorf("failed to decode job: %w", err)
 	}
 
-	// Simple check: Only run if it's a new job (in a real agent we might re-run based on policy)
-	if job.JobID == lastJobID {
-		// log.Println("[INFO] No new job. Waiting...") // Reduce noise
-		return
-	}
-
-	log.Printf("[INFO] Received New Job: %s", job.JobID)
-	lastJobID = job.JobID
-
-	// 2. Execute Job
-	status, output := executePlaybook(job.PlaybookContent)
-
-	// 3. Report Results
-	sendReport(job.JobID, status, output)
+	return &job, nil
 }
 
-func executePlaybook(content string) (string, []byte) {
-	tmpFile := fmt.Sprintf("/tmp/helvilette_job_%s.yml", lastJobID)
-	if err := ioutil.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+// SendReport sends an execution report to Othela
+func (a *Agent) SendReport(report Report) error {
+	url := fmt.Sprintf("%s/report", a.config.OthelaURL)
+	data, err := json.Marshal(report)
+	if err != nil {
+		return fmt.Errorf("failed to marshal report: %w", err)
+	}
+
+	resp, err := a.httpClient.Post(url, "application/json", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("failed to send report: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Othela returned status: %s", resp.Status)
+	}
+
+	return nil
+}
+
+// ExecutePlaybook runs an Ansible playbook and returns the result
+func (a *Agent) ExecutePlaybook(jobID, content string) (status string, output []byte) {
+	tmpFile := fmt.Sprintf("/tmp/helvilette_job_%s.yml", jobID)
+	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to write playbook: %v"}`, err))
 	}
 
 	cmd := exec.Command("ansible-playbook", "-i", "localhost,", "-c", "local", tmpFile)
-	
-	// CRITICAL: Set the callback to JSON for machine-readable output
 	cmd.Env = append(os.Environ(), "ANSIBLE_STDOUT_CALLBACK=json")
-	
-	// We might also want to set ANSIBLE_LOAD_CALLBACK_PLUGINS=1 or ensure the plugin is available,
-	// but usually 'json' is a built-in plugin in modern Ansible.
 
-	log.Printf("[EXEC] Running Ansible Playbook...")
 	output, err := cmd.CombinedOutput()
-	
-	status := "Success"
+
+	status = "Success"
 	if err != nil {
-		log.Printf("[EXEC] Playbook failed: %v", err)
 		status = "Failed"
-	} else {
-		log.Printf("[EXEC] Playbook completed successfully.")
 	}
 
-	// Verify if output is valid JSON. If Ansible crashes hard, it might not be JSON.
+	// Verify if output is valid JSON
 	if !json.Valid(output) {
-		// Wrap non-JSON output in a JSON object so the report doesn't break
 		safeOutput, _ := json.Marshal(map[string]string{
 			"raw_output": string(output),
-			"error": "Output was not valid JSON",
+			"error":      "Output was not valid JSON",
 		})
 		return status, safeOutput
 	}
@@ -117,20 +132,109 @@ func executePlaybook(content string) (string, []byte) {
 	return status, output
 }
 
-func sendReport(jobID, status string, output []byte) {
+// ProcessJob handles a job from Othela
+func (a *Agent) ProcessJob(job *Job) error {
+	// Check if this is a new job
+	if job.JobID == a.lastJobID {
+		return nil // No new job
+	}
+
+	a.lastJobID = job.JobID
+
+	// Execute the playbook
+	status, output := a.ExecutePlaybook(job.JobID, job.PlaybookContent)
+
+	// Send report
 	report := Report{
-		NodeID:   NodeID,
-		JobID:    jobID,
+		NodeID:   a.config.NodeID,
+		JobID:    job.JobID,
 		Status:   status,
 		TaskLogs: json.RawMessage(output),
 	}
 
-	data, _ := json.Marshal(report)
-	resp, err := http.Post(fmt.Sprintf("%s/report", OthelaURL), "application/json", bytes.NewBuffer(data))
+	return a.SendReport(report)
+}
+
+// Run starts the agent main loop
+func (a *Agent) Run(ctx context.Context) error {
+	logger := log.WithComponent("agent").With().Str("node_id", a.config.NodeID).Logger()
+
+	logger.Info().
+		Str("othela_url", a.config.OthelaURL).
+		Dur("poll_interval", a.config.PollInterval).
+		Msg("Helvilette Agent started")
+
+	// Initialize systemd client
+	sdClient, err := systemd.NewClient()
 	if err != nil {
-		log.Printf("[ERROR] Failed to send report: %v", err)
-		return
+		logger.Warn().Err(err).Msg("failed to connect to systemd D-Bus, systemd watching disabled")
+	} else {
+		defer sdClient.Close()
+		logger.Info().Msg("connected to systemd D-Bus")
+
+		watcher := systemd.NewWatcher(sdClient, []string{})
+		eventChan, err := watcher.Watch(ctx)
+		if err != nil {
+			logger.Error().Err(err).Msg("failed to start systemd watcher")
+		} else {
+			go a.handleSystemdEvents(ctx, eventChan)
+		}
 	}
-	defer resp.Body.Close()
-	log.Printf("[REPORT] Sent report for Job %s. Server replied: %s", jobID, resp.Status)
+
+	ticker := time.NewTicker(a.config.PollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			job, err := a.Poll()
+			if err != nil {
+				logger.Error().Err(err).Msg("failed to poll Othela")
+				continue
+			}
+			if err := a.ProcessJob(job); err != nil {
+				logger.Error().Err(err).Msg("failed to process job")
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (a *Agent) handleSystemdEvents(ctx context.Context, eventChan <-chan systemd.UnitEvent) {
+	logger := log.WithComponent("agent").With().Str("node_id", a.config.NodeID).Logger()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-eventChan:
+			if !ok {
+				return
+			}
+			logger.Info().
+				Str("unit", event.Unit.Name).
+				Str("active_state", event.Unit.ActiveState).
+				Str("sub_state", event.Unit.SubState).
+				Str("event_type", event.EventType).
+				Msg("systemd unit event")
+		}
+	}
+}
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	agent := NewAgent(DefaultConfig())
+
+	go func() {
+		sig := <-sigChan
+		log.Info().Str("signal", sig.String()).Msg("received shutdown signal")
+		cancel()
+	}()
+
+	agent.Run(ctx)
 }

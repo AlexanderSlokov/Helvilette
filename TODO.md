@@ -1,11 +1,49 @@
 # Helvilette Future Roadmap & TODOs
 
+## 0. Architecture Decisions (Đã chốt)
+
+### 0.1. Hybrid Model cho `helvilette.yml`
+**Quyết định:** `helvilette.yml` nằm **TRONG** Ansible Playbook repo (như `Chart.yaml` của Helm)
+
+**Lý do:**
+- `helvilette.yml` chứa **metadata + defaults** (version, description, profiles, default vars)
+- **Secrets + environment-specific values** được Othela inject tại runtime (không commit vào Git)
+- GitOps-friendly: Một commit = một phiên bản hoàn chỉnh
+- Secrets management: Othela giữ secrets trong SQLite/etcd, hoặc tích hợp Vault/SOPS
+
+**Cấu trúc mẫu:**
+```
+playbooks-repo/
+├── nginx-stack/
+│   ├── helvilette.yml      # Metadata + defaults
+│   ├── requirements.yml    # Ansible Galaxy deps
+│   ├── playbook.yml
+│   └── roles/
+```
+
+### 0.2. Logging Library: `zerolog`
+**Quyết định:** Sử dụng `github.com/rs/zerolog` cho structured logging
+
+**So sánh:**
+| Library | Performance | Dependencies | API |
+|---------|-------------|--------------|-----|
+| zerolog ✅ | Zero-allocation | External | Chainable |
+| slog | Good | Stdlib | Verbose |
+| zap | Excellent | External | Dual-mode |
+
+**Lý do chọn zerolog:**
+- Zero-allocation JSON logging (critical cho high-frequency systemd events)
+- Chainable API: `log.Info().Str("unit", name).Msg("started")`
+- Battle-tested trong production
+
+---
+
 ## 1. Quản lý Ansible Playbook (The Core Engine)
 Hiện tại đang hardcode string trong Go. Cần chuyển sang cơ chế quản lý file thực thụ.
 
 ### Yêu cầu:
-- **GitOps-driven:** Othela phải biết tự pull Playbooks từ một Git Repository (GitHub/GitLab) về `othela_data/playbooks`.
-- **Ansible Galaxy Support:** Tự động phát hiện file `requirements.yml` trong repo để cài đặt các Roles/Collections cần thiết (`ansible-galaxy install -r ...`).
+- **GitOps-driven:** Othela phải biết tự pull Playbooks từ một Git Repository (GitHub/GitLab) về `helvillette/othela/data/playbooks`.
+- **Ansible Galaxy Support:** Tự động phát hiện file `helvillette.yml` trong repo để cài đặt các Roles/Collections cần thiết (`ansible-galaxy install -r ...`).
 
 ### Đề xuất giải pháp (Technical Proposal):
 1.  **Repo Watcher (Go Routine):** Một thread chạy ngầm trên Othela, định kỳ `git pull` từ remote repo.
@@ -14,10 +52,10 @@ Hiện tại đang hardcode string trong Go. Cần chuyển sang cơ chế quả
 
 ## 2. Agent Intelligence (State Awareness)
 - **Drift Detection:** Thay vì chạy đè (`force`), Agent nên chạy `check_mode` (-C) trước. Nếu kết quả là `changed=0`, báo "Green". Nếu `changed>0`, mới chạy thật (hoặc báo vàng chờ duyệt).
-- **Security:** Triển khai mTLS cho kết nối gRPC/HTTPs giữa Agent và Othela.
+- **Security:** Triển khai mTLS cho kết nối gRPC giữa Agent và Othela.
 
 ## 3. UI/Dashboard
-- Cần một Web UI đơn giản hiển thị:
+### 3.1. Cần một Web UI đơn giản hiển thị:
     - Danh sách Node.
     - Trạng thái Job gần nhất.
     - Log realtime (Stream qua WebSocket).
