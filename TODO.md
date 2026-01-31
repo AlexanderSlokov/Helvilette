@@ -36,6 +36,24 @@ playbooks-repo/
 - Chainable API: `log.Info().Str("unit", name).Msg("started")`
 - Battle-tested trong production
 
+### 0.3. Frontend Stack (2025-01-31)
+**Quyết định:**
+- **Framework:** Wails v2 + Go backend
+- **Frontend:** Vue.js hoặc Svelte
+- **CSS:** TailwindCSS + DaisyUI (dark theme, component library)
+- **API Pattern:** REST cho CRUD, WebSocket cho streaming (logs, events)
+
+**Lý do chọn Wails:**
+- Chia sẻ code Go với Othela (import `pkg/` types)
+- Bundle nhẹ hơn Electron (~10MB vs 100MB+)
+- Native window, không phải Chromium bloat
+
+**Design Style:** Death Stranding-inspired
+- Industrial Brutalism + High-Tech Minimalist
+- Diegetic UI (thông tin như thiết bị thực)
+- Dense UI với monospace fonts cho data
+- Dark theme với accent xanh/cam
+
 ---
 
 ## 1. Quản lý Ansible Playbook (The Core Engine)
@@ -55,7 +73,13 @@ Hiện tại đang hardcode string trong Go. Cần chuyển sang cơ chế quả
 - **Security:** Triển khai mTLS cho kết nối gRPC giữa Agent và Othela.
 
 ## 3. UI/Dashboard
-### 3.1. Cần một Web UI đơn giản hiển thị:
-    - Danh sách Node.
-    - Trạng thái Job gần nhất.
-    - Log realtime (Stream qua WebSocket).
+### 3.1. Core Features:
+- Danh sách Node với status badges
+- Trạng thái Job gần nhất
+- Log realtime (Stream qua WebSocket)
+
+### 3.2. Design Reference:
+- **Style:** Death Stranding Terminal UI
+- **Fonts:** SST Roman, Sackers Gothic, Monospace cho data
+- **Colors:** Dark base + neon accents (cyan, orange)
+- **Effects:** Subtle glitch, hologram glow (không quá nặng)
