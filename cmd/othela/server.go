@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"helvilette/pkg/playbook"
 	"helvilette/pkg/types"
 )
 
@@ -20,6 +21,7 @@ type Report = types.Report
 // Server represents the Othela control plane server
 type Server struct {
 	router     *mux.Router
+	loader     *playbook.Loader
 	currentJob Job
 	reports    []Report
 	mu         sync.RWMutex
@@ -51,6 +53,48 @@ func NewServer() *Server {
 	return s
 }
 
+// NewServerWithLoader creates a new Othela server with a playbook loader
+func NewServerWithLoader(loader *playbook.Loader) *Server {
+	s := &Server{
+		router:  mux.NewRouter(),
+		loader:  loader,
+		reports: make([]Report, 0),
+	}
+
+	// Try to load first available playbook
+	playbooks, err := loader.Scan()
+	if err == nil && len(playbooks) > 0 {
+		content, err := loader.Load(playbooks[0].ID)
+		if err == nil {
+			s.currentJob = Job{
+				JobID:           "job-" + playbooks[0].ID,
+				PlaybookContent: content,
+			}
+			log.Printf("[LOADER] Loaded playbook: %s", playbooks[0].Name)
+		}
+	}
+
+	// Fallback to mock job if no playbooks found
+	if s.currentJob.JobID == "" {
+		s.currentJob = Job{
+			JobID: "job-" + fmt.Sprintf("%d", time.Now().Unix()),
+			PlaybookContent: `
+- name: Helvilette Fallback Job
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: No playbooks found
+      debug:
+        msg: "No playbooks available in data/playbooks/"
+`,
+		}
+	}
+
+	s.setupRoutes()
+	return s
+}
+
 // NewServerWithJob creates a server with a specific job (for testing)
 func NewServerWithJob(job Job) *Server {
 	s := &Server{
@@ -65,6 +109,7 @@ func NewServerWithJob(job Job) *Server {
 func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/api/v1/sync/{node_id}", s.handleSync).Methods("GET")
 	s.router.HandleFunc("/api/v1/report", s.handleReport).Methods("POST")
+	s.router.HandleFunc("/api/v1/playbooks", s.handlePlaybooks).Methods("GET")
 }
 
 // Router returns the HTTP router for the server
@@ -135,3 +180,28 @@ func (s *Server) ListenAndServe(addr string) error {
 	log.Printf("Othela Control Plane is listening on %s...", addr)
 	return http.ListenAndServe(addr, s.router)
 }
+
+// handlePlaybooks lists all available playbooks
+func (s *Server) handlePlaybooks(w http.ResponseWriter, r *http.Request) {
+	if s.loader == nil {
+		http.Error(w, "Playbook loader not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	playbooks, err := s.loader.Scan()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[PLAYBOOKS] Returning %d playbooks", len(playbooks))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(playbooks)
+}
+
+// GetLoader returns the playbook loader (for testing)
+func (s *Server) GetLoader() *playbook.Loader {
+	return s.loader
+}
+
