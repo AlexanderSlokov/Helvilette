@@ -1,0 +1,4 @@
+---
+name: nginx-collection
+version: "1.0.0"
+description: Install and configure NGINX

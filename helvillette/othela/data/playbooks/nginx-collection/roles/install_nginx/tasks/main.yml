@@ -1,0 +1,12 @@
+---
+- name: Install NGINX package
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: yes
+
+- name: Ensure NGINX is running
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: yes

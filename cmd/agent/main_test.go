@@ -207,21 +207,23 @@ func TestAgent_SendReport_ServerError(t *testing.T) {
 func TestAgent_ExecutePlaybook_WritesFile(t *testing.T) {
 	agent := NewAgent(DefaultConfig())
 
-	jobID := "test-write-123"
-	content := "test playbook content"
+	job := &Job{
+		JobID:           "test-write-123",
+		PlaybookContent: "test playbook content",
+	}
 
 	// This will fail because ansible-playbook is not available in test
 	// but we can verify the file was written
-	agent.ExecutePlaybook(jobID, content)
+	agent.ExecutePlaybook(job)
 
-	tmpFile := filepath.Join("/tmp", "helvilette_job_"+jobID+".yml")
+	tmpFile := filepath.Join("/tmp", "helvilette_job_"+job.JobID+".yml")
 	data, err := os.ReadFile(tmpFile)
 	if err != nil {
 		t.Fatalf("failed to read playbook file: %v", err)
 	}
 
-	if string(data) != content {
-		t.Errorf("file content = %q, want %q", string(data), content)
+	if string(data) != job.PlaybookContent {
+		t.Errorf("file content = %q, want %q", string(data), job.PlaybookContent)
 	}
 
 	// Cleanup

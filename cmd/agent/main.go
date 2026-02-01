@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -94,25 +95,65 @@ func (a *Agent) SendReport(report Report) error {
 	return nil
 }
 
-// ExecutePlaybook runs an Ansible playbook and returns the result
-func (a *Agent) ExecutePlaybook(jobID, content string) (status string, output []byte) {
-	tmpFile := fmt.Sprintf("/tmp/helvilette_job_%s.yml", jobID)
-	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
-		return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to write playbook: %v"}`, err))
+// ExecutePlaybook runs an Ansible playbook and returns the result.
+// If job.PlaybookPath is set, runs from that path (enables role resolution).
+// Otherwise, writes content to /tmp and runs from there.
+func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
+	logger := log.WithComponent("executor")
+
+	var playbookFile string
+	var workDir string
+
+	if job.PlaybookPath != "" {
+		// Use provided path - enables role resolution
+		playbookFile = job.PlaybookPath
+		workDir = filepath.Dir(playbookFile)
+		logger.Info().
+			Str("job_id", job.JobID).
+			Str("playbook_path", playbookFile).
+			Str("work_dir", workDir).
+			Msg("executing playbook from source path")
+	} else {
+		// Fallback: write content to temp file
+		playbookFile = fmt.Sprintf("/tmp/helvilette_job_%s.yml", job.JobID)
+		workDir = "/tmp"
+		if err := os.WriteFile(playbookFile, []byte(job.PlaybookContent), 0644); err != nil {
+			logger.Error().Err(err).Str("job_id", job.JobID).Msg("failed to write playbook to temp")
+			return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to write playbook: %v"}`, err))
+		}
+		logger.Info().
+			Str("job_id", job.JobID).
+			Str("temp_file", playbookFile).
+			Msg("executing playbook from temp file")
 	}
 
-	cmd := exec.Command("ansible-playbook", "-i", "localhost,", "-c", "local", tmpFile)
+	cmd := exec.Command("ansible-playbook", "-i", "localhost,", "-c", "local", playbookFile)
+	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(), "ANSIBLE_STDOUT_CALLBACK=json")
+
+	logger.Debug().
+		Str("command", cmd.String()).
+		Str("work_dir", workDir).
+		Msg("running ansible-playbook")
 
 	output, err := cmd.CombinedOutput()
 
 	status = "Success"
 	if err != nil {
 		status = "Failed"
+		logger.Warn().
+			Err(err).
+			Str("job_id", job.JobID).
+			Msg("playbook execution failed")
+	} else {
+		logger.Info().
+			Str("job_id", job.JobID).
+			Msg("playbook execution succeeded")
 	}
 
 	// Verify if output is valid JSON
 	if !json.Valid(output) {
+		logger.Warn().Str("job_id", job.JobID).Msg("ansible output was not valid JSON")
 		safeOutput, _ := json.Marshal(map[string]string{
 			"raw_output": string(output),
 			"error":      "Output was not valid JSON",
@@ -125,15 +166,22 @@ func (a *Agent) ExecutePlaybook(jobID, content string) (status string, output []
 
 // ProcessJob handles a job from Othela
 func (a *Agent) ProcessJob(job *Job) error {
+	logger := log.WithComponent("agent")
+
 	// Check if this is a new job
 	if job.JobID == a.lastJobID {
 		return nil // No new job
 	}
 
+	logger.Info().
+		Str("job_id", job.JobID).
+		Bool("has_path", job.PlaybookPath != "").
+		Msg("processing new job")
+
 	a.lastJobID = job.JobID
 
 	// Execute the playbook
-	status, output := a.ExecutePlaybook(job.JobID, job.PlaybookContent)
+	status, output := a.ExecutePlaybook(job)
 
 	// Send report
 	report := Report{
@@ -142,6 +190,11 @@ func (a *Agent) ProcessJob(job *Job) error {
 		Status:   status,
 		TaskLogs: json.RawMessage(output),
 	}
+
+	logger.Info().
+		Str("job_id", job.JobID).
+		Str("status", status).
+		Msg("sending report to Othela")
 
 	return a.SendReport(report)
 }

@@ -9,6 +9,7 @@ import "encoding/json"
 type Job struct {
 	JobID           string `json:"job_id"`
 	PlaybookContent string `json:"playbook_content"`
+	PlaybookPath    string `json:"playbook_path,omitempty"` // Full path to run from (enables role resolution)
 }
 
 // Report represents the execution report from an Agent.
@@ -16,6 +17,6 @@ type Job struct {
 type Report struct {
 	NodeID   string          `json:"node_id"`
 	JobID    string          `json:"job_id"`
-	Status   string          `json:"status"`    // Success, Failed
-	TaskLogs json.RawMessage `json:"task_log"`  // Ansible JSON output
+	Status   string          `json:"status"`   // Success, Failed
+	TaskLogs json.RawMessage `json:"task_log"` // Ansible JSON output
 }

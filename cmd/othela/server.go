@@ -69,8 +69,9 @@ func NewServerWithLoader(loader *playbook.Loader) *Server {
 			s.currentJob = Job{
 				JobID:           "job-" + playbooks[0].ID,
 				PlaybookContent: content,
+				PlaybookPath:    playbooks[0].FullPath,
 			}
-			log.Printf("[LOADER] Loaded playbook: %s", playbooks[0].Name)
+			log.Printf("[LOADER] Loaded playbook: %s (path: %s)", playbooks[0].Name, playbooks[0].FullPath)
 		}
 	}
 
