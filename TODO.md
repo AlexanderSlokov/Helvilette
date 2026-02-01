@@ -1,5 +1,18 @@
 # Helvilette Future Roadmap & TODOs
 
+## ✅ Completed Milestones
+
+### Session 2026-02-01: Living Skeleton E2E
+- [x] **Shared Types** - `pkg/types/types.go` với `Job`, `Report`
+- [x] **Playbook Loader** - `pkg/playbook/` (Scan, Load, Get) với 87.8% coverage
+- [x] **Othela Integration** - `NewServerWithLoader()`, `GET /api/v1/playbooks`
+- [x] **Agent PlaybookPath** - Chạy từ đúng thư mục, roles resolve
+- [x] **Agent Zerolog** - Structured logging toàn bộ execution flow
+- [x] **nginx-collection** - Sample collection cho testing
+- [x] **First Real Deployment** - NGINX installed on WSL2 via full E2E flow!
+
+---
+
 ## 0. Architecture Decisions (Đã chốt)
 
 ### 0.1. Hybrid Model cho `helvilette.yml`
@@ -22,64 +35,96 @@ playbooks-repo/
 ```
 
 ### 0.2. Logging Library: `zerolog`
-**Quyết định:** Sử dụng `github.com/rs/zerolog` cho structured logging
+**Quyết định:** Sử dụng `github.com/rs/zerolog` cho structured logging ✅ **Implemented**
 
-**So sánh:**
-| Library | Performance | Dependencies | API |
-|---------|-------------|--------------|-----|
-| zerolog ✅ | Zero-allocation | External | Chainable |
-| slog | Good | Stdlib | Verbose |
-| zap | Excellent | External | Dual-mode |
+### 0.3. Frontend Stack
+**Quyết định:** Wails v2 + Vue/Svelte + TailwindCSS + DaisyUI
+**Design:** Death Stranding-inspired (Industrial Brutalism + High-Tech Minimalist)
 
-**Lý do chọn zerolog:**
-- Zero-allocation JSON logging (critical cho high-frequency systemd events)
-- Chainable API: `log.Info().Str("unit", name).Msg("started")`
-- Battle-tested trong production
+### 0.4. Playbook Distribution: K8s-style (2026-02-01)
+**Quyết định:** Agent tự clone/pull playbook repos (như Kubelet pull images)
 
-### 0.3. Frontend Stack (2025-01-31)
-**Quyết định:**
-- **Framework:** Wails v2 + Go backend
-- **Frontend:** Vue.js hoặc Svelte
-- **CSS:** TailwindCSS + DaisyUI (dark theme, component library)
-- **API Pattern:** REST cho CRUD, WebSocket cho streaming (logs, events)
+**Pattern:**
+```
+┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│     Othela      │ ──────► │      Agent      │ ──────► │   Git Repo      │
+│                 │ JobSpec │                 │  Clone/ │                 │
+│ (Control Plane) │ (JSON)  │   (Node Agent)  │  Pull   │                 │
+└─────────────────┘         └─────────────────┘         └─────────────────┘
+```
 
-**Lý do chọn Wails:**
-- Chia sẻ code Go với Othela (import `pkg/` types)
-- Bundle nhẹ hơn Electron (~10MB vs 100MB+)
-- Native window, không phải Chromium bloat
-
-**Design Style:** Death Stranding-inspired
-- Industrial Brutalism + High-Tech Minimalist
-- Diegetic UI (thông tin như thiết bị thực)
-- Dense UI với monospace fonts cho data
-- Dark theme với accent xanh/cam
+**Lý do:**
+- Bandwidth hiệu quả (chỉ gửi reference, không gửi payload)
+- Agent cache repos locally
+- Version control via Git SHA
+- Giống cách K8s kubelet hoạt động
 
 ---
 
-## 1. Quản lý Ansible Playbook (The Core Engine)
-Hiện tại đang hardcode string trong Go. Cần chuyển sang cơ chế quản lý file thực thụ.
+## 1. Phase 2: GitOps Playbook Distribution 🎯 NEXT
 
-### Yêu cầu:
-- **GitOps-driven:** Othela phải biết tự pull Playbooks từ một Git Repository (GitHub/GitLab) về `helvillette/othela/data/playbooks`.
-- **Ansible Galaxy Support:** Tự động phát hiện file `helvillette.yml` trong repo để cài đặt các Roles/Collections cần thiết (`ansible-galaxy install -r ...`).
+### 1.1. Job Struct Update
+```go
+type Job struct {
+    JobID        string `json:"job_id"`
+    
+    // K8s-style: Reference-based
+    RepoURL      string `json:"repo_url,omitempty"`      // git@github.com:org/playbooks.git
+    PlaybookPath string `json:"playbook_path,omitempty"` // nginx-collection/playbook.yml  
+    Version      string `json:"version,omitempty"`       // commit SHA hoặc tag
+    
+    // Legacy: Content-based (fallback)
+    PlaybookContent string `json:"playbook_content,omitempty"`
+}
+```
 
-### Đề xuất giải pháp (Technical Proposal):
-1.  **Repo Watcher (Go Routine):** Một thread chạy ngầm trên Othela, định kỳ `git pull` từ remote repo.
-2.  **Versioning:** Mỗi lần commit mới sẽ có hash SHA. Othela dùng SHA này làm "Job Version" để đảm bảo các Agent update lên phiên bản mới nhất.
-3.  **Local Cache:** Othela cache playbook ra đĩa. Khi Agent hỏi, Othela đọc file từ đĩa gửi đi (hoặc nén trả về URL download nếu file lớn).
+### 1.2. Othela Components
+- [ ] `pkg/git/repo.go` - Git repository abstraction
+- [ ] `pkg/git/watcher.go` - Periodic sync từ remote repos
+- [ ] `pkg/git/registry.go` - Manage multiple repos
+- [ ] API: `POST /api/v1/repos` - Register new repo
+- [ ] API: `GET /api/v1/repos` - List registered repos
+- [ ] API: `POST /api/v1/repos/{id}/sync` - Trigger manual sync
+
+### 1.3. Agent Components  
+- [ ] `pkg/git/cache.go` - Local repo cache management
+- [ ] `pkg/git/clone.go` - Clone/pull operations
+- [ ] Update `ExecutePlaybook()` to:
+  1. Check if repo exists locally
+  2. Clone if missing, pull if version changed
+  3. Execute from cached path
+
+### 1.4. Verification
+- [ ] Unit tests cho git package
+- [ ] Integration test: Othela register repo → Agent clone → Execute
+- [ ] Test với real GitHub repo
+
+---
 
 ## 2. Agent Intelligence (State Awareness)
-- **Drift Detection:** Thay vì chạy đè (`force`), Agent nên chạy `check_mode` (-C) trước. Nếu kết quả là `changed=0`, báo "Green". Nếu `changed>0`, mới chạy thật (hoặc báo vàng chờ duyệt).
-- **Security:** Triển khai mTLS cho kết nối gRPC giữa Agent và Othela.
+- [ ] **Drift Detection:** `ansible-playbook --check` trước khi apply
+- [ ] **Security:** mTLS cho kết nối giữa Agent và Othela
+
+---
 
 ## 3. UI/Dashboard
 ### 3.1. Core Features:
-- Danh sách Node với status badges
-- Trạng thái Job gần nhất
-- Log realtime (Stream qua WebSocket)
+- [ ] Danh sách Node với status badges
+- [ ] Trạng thái Job gần nhất
+- [ ] Log realtime (Stream qua WebSocket)
+- [ ] Playbook catalog browser
 
 ### 3.2. Design Reference:
 - **Style:** Death Stranding Terminal UI
 - **Fonts:** SST Roman, Sackers Gothic, Monospace cho data
 - **Colors:** Dark base + neon accents (cyan, orange)
 - **Effects:** Subtle glitch, hologram glow (không quá nặng)
+
+---
+
+## 4. Production Readiness
+- [ ] Node registration với Othela
+- [ ] Health check endpoints
+- [ ] Graceful shutdown handling
+- [ ] Configuration via env/config file
+- [ ] Systemd service files
