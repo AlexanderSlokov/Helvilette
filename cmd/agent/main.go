@@ -14,6 +14,7 @@ import (
 
 	"helvilette/pkg/log"
 	"helvilette/pkg/systemd"
+	"helvilette/pkg/types"
 )
 
 // AgentConfig holds configuration for the agent
@@ -39,19 +40,9 @@ type Agent struct {
 	httpClient *http.Client
 }
 
-// Job represents a job from Othela
-type Job struct {
-	JobID           string `json:"job_id"`
-	PlaybookContent string `json:"playbook_content"`
-}
-
-// Report represents the execution report to send back
-type Report struct {
-	NodeID   string          `json:"node_id"`
-	JobID    string          `json:"job_id"`
-	Status   string          `json:"status"`
-	TaskLogs json.RawMessage `json:"task_log"`
-}
+// Type aliases for backward compatibility within this package
+type Job = types.Job
+type Report = types.Report
 
 // NewAgent creates a new agent with the given configuration
 func NewAgent(config AgentConfig) *Agent {

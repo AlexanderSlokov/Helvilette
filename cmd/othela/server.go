@@ -9,21 +9,13 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+
+	"helvilette/pkg/types"
 )
 
-// Job represents a job that Othela sends to Agents
-type Job struct {
-	JobID           string `json:"job_id"`
-	PlaybookContent string `json:"playbook_content"`
-}
-
-// Report represents the execution report from an Agent
-type Report struct {
-	NodeID   string          `json:"node_id"`
-	JobID    string          `json:"job_id"`
-	Status   string          `json:"status"`
-	TaskLogs json.RawMessage `json:"task_log"`
-}
+// Type aliases for backward compatibility within this package
+type Job = types.Job
+type Report = types.Report
 
 // Server represents the Othela control plane server
 type Server struct {
