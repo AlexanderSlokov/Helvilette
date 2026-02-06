@@ -1,4 +1,12 @@
----
-name: nginx-collection
+# nginx-collection/helvilette.yml
+name: nginx-stack
 version: "1.0.0"
 description: Install and configure NGINX
+
+# Default values (như values.yaml)
+defaults:
+  nginx_port: 80
+  worker_processes: auto
+
+profiles:
+  - webserver
