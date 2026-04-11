@@ -58,6 +58,11 @@ services:
       - othela
     restart: unless-stopped
 
+# Idea: Cần một server Git để phục vụ cái repo giả lập "helvillette/othela/data/playbooks/nginx-collection"
+# Tiêu chí: nhẹ, dễ cấu hình, tương tác giống GitHub / GitLab, hoặc
+# nó làm tốt vai trò là mirror của repo thật trên VCS flatform, giúp file compose này
+# có thể kiểm thử e2e mà không liên tục spam vào máy chủ git
+
 networks:
   helvilette-net:
     driver: bridge

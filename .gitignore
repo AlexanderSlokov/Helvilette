@@ -33,5 +33,5 @@ go.work.sum
 Đề xuất dự án Helvilette.md
 
 # Playbooks - ignore cloned external repos, keep our test collection
-/helvillette/othela/data/playbooks/ansible-collection-hardening/
+/tests/e2e/data/playbooks/ansible-collection-hardening/
 /bin

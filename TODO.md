@@ -6,10 +6,10 @@
 - [x] **Shared Types** - `pkg/types/types.go` với `Job`, `Report`
 - [x] **Playbook Loader** - `pkg/playbook/` (Scan, Load, Get) với 87.8% coverage
 - [x] **Othela Integration** - `NewServerWithLoader()`, `GET /api/v1/playbooks`
-- [x] **Agent PlaybookPath** - Chạy từ đúng thư mục, roles resolve
-- [x] **Agent Zerolog** - Structured logging toàn bộ execution flow
+- [x] **Agent PlaybookPath** – Chạy từ đúng thư mục, roles resolve
+- [x] **Agent Zerolog** – Structured logging toàn bộ execution flow
 - [x] **nginx-collection** - Sample collection for testing
-- [x] **First Real Deployment** - NGINX installed on WSL2 via full E2E flow!
+- [x] **First Real Deployment** – NGINX installed on WSL2 via full E2E flow!
 
 ### Phase 1.5: Ephemeral Testing Environment (Docker Compose) ✅
 - [x] Xây dựng `Dockerfile.othela` (Go 1.25.6, Debian slim LTS)
@@ -79,6 +79,26 @@ playbooks-repo/
 
 ---
 
+## 1. Phase 1.7: Git Server Mocking for E2E Tests 🚧 NEW
+**Mục tiêu:** Cần một máy chủ Git nhỏ gọn (như Gitea, Gogs hoặc một Git server đơn giản) 
+chạy dưới dạng một container trong Docker Compose. Container này sẽ lưu trữ giả lập các Playbook repos (như `nginx-collection`), 
+giúp Othela và các Agent thực hiện luồng E2E test kéo (clone/pull) Git qua HTTP(s) mà không bị phụ thuộc vào GitHub/GitLab 
+hoặc không bị "spam" network ra internet.
+
+### 1.7.1. Chọn giải pháp Git Server
+- [ ] Đánh giá và chọn image phù hợp (Gitea `gitea/gitea` thường nhẹ và rất phù hợp cho Lab).
+
+### 1.7.2. Tích hợp vào `docker-compose.yaml`
+- [ ] Thêm service `git-server` vào file.
+- [ ] Cấu hình cổng (VD: 3000) và mount volume để lưu trữ code.
+
+### 1.7.3. Seeding Data (Mock Repos)
+- [ ] Viết một script hoặc init container để tự động tạo repo `nginx-collection` trên `git-server` 
+và đẩy dữ liệu mẫu vào (push code) khi cluster khởi động.
+- [ ] Cập nhật lại `Makefile` hoặc tài liệu để mô tả quá trình seeding này.
+
+---
+
 ## 2. Phase 2: GitOps Playbook Distribution 🎯 NEXT
 
 ### 2.1. Job Struct Update
@@ -96,7 +116,7 @@ type Job struct {
 }
 ```
 
-### 2.2. Othela Components
+### 2.2. Othela Parts
 - [ ] `pkg/git/repo.go` - Git repository abstraction
 - [ ] `pkg/git/watcher.go` - Periodic sync từ remote repos
 - [ ] `pkg/git/registry.go` - Manage multiple repos
@@ -109,8 +129,8 @@ type Job struct {
 - [ ] `pkg/git/clone.go` - Clone/pull operations
 - [ ] Update `ExecutePlaybook()` to:
   1. Check if repo exists locally
-  2. Clone if missing, pull if version changed
-  3. Execute from cached path
+  2. Clone if missing, pull if a version changed
+  3. Execute from a cached path
 
 ### 2.4. Verification
 - [ ] Unit tests cho git package
@@ -135,7 +155,7 @@ type Job struct {
 ### 4.2. Design Reference:
 - **Style:** Death Stranding Terminal UI
 - **Fonts:** SST Roman, Sackers Gothic, Monospace cho data
-- **Colors:** Dark base + neon accents (cyan, orange)
+- **Colors:** Dark base and neon accents (cyan, orange)
 - **Effects:** Subtle glitch, hologram glow (không quá nặng)
 
 ---
