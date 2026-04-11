@@ -32,6 +32,19 @@ Sau khi E2E Test của Ephemeral Lab (Phase 1.5) đã pass hoàn toàn nhờ fix
 - Đổi script Mocking qua Othela để nó sử dụng `RepoURL` trỏ về user `helvilette` trên container `git-server` (Gitea).
 - Make sure Agent tự pull và `ansible-playbook` báo success mà không thông qua local mounted playbooks.
 
+---
+
+### Sự kiện đáng chú ý (Cập nhật kết thúc Session)
+**Milestone Chấn Động: PoC GitOps Đã Hoàn Toàn Thành Công! 🎉**
+
+Tất cả các Agent đã tự động cài đặt Nginx thành công 100%. Kiến trúc Pull-based nay không nhận "rác YAML" nữa mà chỉ nhận Git Referencing. Những giá trị to lớn sau đã được hiện thực:
+1. **Agent Self-healing & Resiliency:** Agent tự retry khi Gitea chưa khởi động kịp xong, tránh các lỗi panic hay kẹt loop.
+2. **Loại bỏ Flaky Test E2E:** Setup thành công container `git-seeder` (kèm docker-cli map host) ép toàn bộ cụm phải đợi Repo được Seed xong thì Othela và Agents mới chỗi dậy nhờ Native Docker Compose Dependency `condition: service_completed_successfully`.
+3. **Mô hình kiến trúc đỉnh cao:** Bóc tách tuyệt đối Control Plane (Othela) và Worker (Agent), Control plane giờ đây vô cùng thảnh thơi, không phải vác nặng File System nữa. Kiến trúc Helvilette mang dáng hình của gã khổng lồ thực thụ.
+
+Bước ngoặt thiết kế back-end coi như đã viên mãn. Dự án sẵn sàng tiến vào làm UX / UI!
+
+
 ## Session: 2026-04-11 — Ephemeral Cluster & K8s-Style Configuration
 
 ### Sự kiện đáng chú ý
