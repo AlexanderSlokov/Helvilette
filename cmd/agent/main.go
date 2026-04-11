@@ -14,57 +14,119 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+
 	"helvilette/pkg/log"
 	"helvilette/pkg/systemd"
 	"helvilette/pkg/types"
 )
 
-// AgentConfig holds configuration for the agent
-type AgentConfig struct {
-	OthelaURL    string
-	NodeID       string
-	PollInterval time.Duration
+// AgentConfiguration holds the full configuration for the agent,
+// modeled after Kubernetes KubeletConfiguration
+type AgentConfiguration struct {
+	OthelaURL    string        `yaml:"othelaURL"`
+	NodeID       string        `yaml:"nodeID"`
+	PollInterval time.Duration `yaml:"pollInterval"`
+	WorkspaceDir string        `yaml:"workspaceDir"`
 }
 
-// ConfigFromEnv reads configuration from environment variables, falling back to defaults
-func ConfigFromEnv() AgentConfig {
-	config := AgentConfig{
+// DefaultConfig returns the default agent configuration
+func DefaultConfig() AgentConfiguration {
+	return AgentConfiguration{
 		OthelaURL:    "http://localhost:8080/api/v1",
 		NodeID:       "agent-01",
 		PollInterval: 5 * time.Second,
+		WorkspaceDir: "/tmp/helvilette",
+	}
+}
+
+// LoadConfig merges default, yaml file, environment, and CLI configurations
+func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval string) (AgentConfiguration, error) {
+	config := DefaultConfig()
+
+	// 1. Load from YAML file if provided
+	if configPath != "" {
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			return config, fmt.Errorf("failed to read config file: %w", err)
+		}
+
+		var raw struct {
+			OthelaURL    string `yaml:"othelaURL"`
+			NodeID       string `yaml:"nodeID"`
+			PollInterval string `yaml:"pollInterval"`
+			WorkspaceDir string `yaml:"workspaceDir"`
+		}
+
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			return config, fmt.Errorf("failed to parse config file: %w", err)
+		}
+
+		if raw.OthelaURL != "" {
+			config.OthelaURL = raw.OthelaURL
+		}
+		if raw.NodeID != "" {
+			config.NodeID = raw.NodeID
+		}
+		if raw.WorkspaceDir != "" {
+			config.WorkspaceDir = raw.WorkspaceDir
+		}
+		if raw.PollInterval != "" {
+			d, err := time.ParseDuration(raw.PollInterval)
+			if err != nil {
+				return config, fmt.Errorf("invalid pollInterval in config file: %w", err)
+			}
+			config.PollInterval = d
+		}
 	}
 
+	// 2. Override with Environment Variables
 	if url := os.Getenv("OTHELA_URL"); url != "" {
-		// Ensure it has the api/v1 suffix if not provided
-		if !filepath.HasPrefix(url, "http") {
-			url = "http://" + url
-		}
-		// Basic check to see if /api/v1 is appended, if not, append it for backward compatibility
-		if len(url) > 0 && url[len(url)-1] == '/' {
-			url = url[:len(url)-1]
-		}
-		if len(url) < 7 || url[len(url)-7:] != "/api/v1" {
-			url = url + "/api/v1"
-		}
 		config.OthelaURL = url
 	}
-
 	if nodeID := os.Getenv("NODE_ID"); nodeID != "" {
 		config.NodeID = nodeID
 	}
-
 	if interval := os.Getenv("POLL_INTERVAL"); interval != "" {
 		if parsed, err := time.ParseDuration(interval); err == nil {
 			config.PollInterval = parsed
 		}
 	}
+	if dir := os.Getenv("WORKSPACE_DIR"); dir != "" {
+		config.WorkspaceDir = dir
+	}
 
-	return config
+	// 3. Override with CLI Flags (highest priority)
+	if cliOthelaURL != "" {
+		config.OthelaURL = cliOthelaURL
+	}
+	if cliNodeID != "" {
+		config.NodeID = cliNodeID
+	}
+	if cliPollInterval != "" {
+		if parsed, err := time.ParseDuration(cliPollInterval); err == nil {
+			config.PollInterval = parsed
+		}
+	}
+
+	// Format URL
+	if !filepath.HasPrefix(config.OthelaURL, "http") {
+		config.OthelaURL = "http://" + config.OthelaURL
+	}
+	if len(config.OthelaURL) > 0 && config.OthelaURL[len(config.OthelaURL)-1] == '/' {
+		config.OthelaURL = config.OthelaURL[:len(config.OthelaURL)-1]
+	}
+	if len(config.OthelaURL) < 7 || config.OthelaURL[len(config.OthelaURL)-7:] != "/api/v1" {
+		config.OthelaURL = config.OthelaURL + "/api/v1"
+	}
+
+	return config, nil
 }
 
 // Agent represents the Helvilette agent
 type Agent struct {
-	config     AgentConfig
+	config     AgentConfiguration
 	lastJobID  string
 	httpClient *http.Client
 }
@@ -74,7 +136,7 @@ type Job = types.Job
 type Report = types.Report
 
 // NewAgent creates a new agent with the given configuration
-func NewAgent(config AgentConfig) *Agent {
+func NewAgent(config AgentConfiguration) *Agent {
 	return &Agent{
 		config:     config,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
@@ -134,16 +196,21 @@ func (a *Agent) SendReport(report Report) error {
 }
 
 // ExecutePlaybook runs an Ansible playbook and returns the result.
-// If job.PlaybookPath is set, runs from that path (enables role resolution).
-// Otherwise, writes content to /tmp and runs from there.
 func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 	logger := log.WithComponent("executor")
 
 	var playbookFile string
 	var workDir string
 
+	// Ensure workspace exists
+	if err := os.MkdirAll(a.config.WorkspaceDir, 0755); err != nil {
+		logger.Error().Err(err).Str("dir", a.config.WorkspaceDir).Msg("failed to create workspace dir")
+		return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to create workspace: %v"}`, err))
+	}
+
 	if job.PlaybookPath != "" {
 		// Use provided path - enables role resolution
+		// Ensure that the agent can read the file correctly by looking into the workspace dir.
 		playbookFile = job.PlaybookPath
 		workDir = filepath.Dir(playbookFile)
 		logger.Info().
@@ -152,17 +219,17 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 			Str("work_dir", workDir).
 			Msg("executing playbook from source path")
 	} else {
-		// Fallback: write content to temp file
-		playbookFile = fmt.Sprintf("/tmp/helvilette_job_%s.yml", job.JobID)
-		workDir = "/tmp"
+		// Fallback: write content to workspace file
+		playbookFile = filepath.Join(a.config.WorkspaceDir, fmt.Sprintf("helvilette_job_%s.yml", job.JobID))
+		workDir = a.config.WorkspaceDir
 		if err := os.WriteFile(playbookFile, []byte(job.PlaybookContent), 0644); err != nil {
-			logger.Error().Err(err).Str("job_id", job.JobID).Msg("failed to write playbook to temp")
+			logger.Error().Err(err).Str("job_id", job.JobID).Msg("failed to write playbook to workspace")
 			return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to write playbook: %v"}`, err))
 		}
 		logger.Info().
 			Str("job_id", job.JobID).
 			Str("temp_file", playbookFile).
-			Msg("executing playbook from temp file")
+			Msg("executing playbook from workspace file")
 	}
 
 	cmd := exec.Command("ansible-playbook", "-i", "localhost,", "-c", "local", playbookFile)
@@ -244,6 +311,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	logger.Info().
 		Str("othela_url", a.config.OthelaURL).
 		Dur("poll_interval", a.config.PollInterval).
+		Str("workspace_dir", a.config.WorkspaceDir).
 		Msg("Helvilette Agent started")
 
 	// Initialize systemd client
@@ -304,22 +372,51 @@ func (a *Agent) handleSystemdEvents(ctx context.Context, eventChan <-chan system
 }
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	var (
+		configFile   string
+		othelaURL    string
+		nodeID       string
+		pollInterval string
+	)
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	var rootCmd = &cobra.Command{
+		Use:   "agent",
+		Short: "Helvilette Node Agent",
+		Long:  `The Node Agent runs on client machines, polls Othela for jobs, and executes Ansible playbooks.`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg, err := LoadConfig(configFile, othelaURL, nodeID, pollInterval)
+			if err != nil {
+				log.Fatal().Err(err).Msg("failed to load configuration")
+			}
 
-	agent := NewAgent(ConfigFromEnv())
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	go func() {
-		sig := <-sigChan
-		log.Info().Str("signal", sig.String()).Msg("received shutdown signal")
-		cancel()
-	}()
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	err := agent.Run(ctx)
-	if err != nil {
-		return
+			agent := NewAgent(cfg)
+
+			go func() {
+				sig := <-sigChan
+				log.Info().Str("signal", sig.String()).Msg("received shutdown signal")
+				cancel()
+			}()
+
+			err = agent.Run(ctx)
+			if err != nil {
+				log.Fatal().Err(err).Msg("agent stopped with error")
+			}
+		},
+	}
+
+	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to the YAML configuration file (e.g. /var/lib/helvilette/agent.yaml)")
+	rootCmd.Flags().StringVar(&othelaURL, "othela-url", "", "URL of the Othela control plane")
+	rootCmd.Flags().StringVar(&nodeID, "node-id", "", "Unique identifier for this node")
+	rootCmd.Flags().StringVar(&pollInterval, "poll-interval", "", "Interval between polls to Othela (e.g. 5s)")
+
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }

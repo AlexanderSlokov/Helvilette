@@ -18,6 +18,17 @@
 - [x] Cập nhật `Makefile` với các lệnh quản lý cluster (`make up`, `make down`, `make logs`)
 - [x] Xử lý truyền `NODE_ID` và cấu hình qua ENV
 
+### Phase 1.6: Kubernetes-Style Configuration ✅
+- [x] Tích hợp package CLI (`cobra`) cho Othela
+- [x] Hỗ trợ các flags cơ bản cho Othela: `--port`, `--data-dir`, `--log-level`
+- [x] Bỏ hardcode port 8080 trong `cmd/othela/main.go`
+- [x] Tích hợp yaml parser (`gopkg.in/yaml.v3`) và `cobra` cho Agent
+- [x] Định nghĩa struct `AgentConfiguration` (`OthelaURL`, `NodeID`, `PollInterval`, `WorkspaceDir`)
+- [x] Cho phép Agent nhận flag `--config=/path/to/config.yaml`
+- [x] Thứ tự ưu tiên cấu hình Agent: CLI Flags > YAML Config > Environment Variables > Defaults
+- [x] Tạo các file YAML config mẫu cho 3 Agents
+- [x] Cập nhật `docker-compose.yaml` để truyền `--config` flag thay vì dùng ENV, và mount config files vào `/var/lib/helvilette/agent.yaml`
+
 ---
 
 ## 0. Architecture Decisions (Đã chốt)
@@ -65,28 +76,6 @@ playbooks-repo/
 - Agent cache repos locally
 - Version control via Git SHA
 - Giống cách K8s kubelet hoạt động
-
----
-
-## 1. Phase 1.6: Kubernetes-Style Configuration 🚧 NEW
-**Mục tiêu:** Quản lý cấu hình linh hoạt và chuẩn chỉ theo mô hình của Kubernetes: Othela (Control Plane) dùng Command-line Flags (giống `kube-apiserver`), còn Agent (Node) dùng YAML file kết hợp Flags (giống `kubelet`).
-
-### 1.6.1. Othela CLI Flags (`kube-apiserver` style)
-- [ ] Tích hợp package CLI (`cobra`)
-- [ ] Hỗ trợ các flags cơ bản: `--port`, `--data-dir`, `--log-level`
-- [ ] Bỏ hardcode port 8080 trong `cmd/othela/main.go`
-
-### 1.6.2. Agent YAML Config (`kubelet` style)
-- [ ] Tích hợp yaml parser (e.g., `gopkg.in/yaml.v3`)
-- [ ] Định nghĩa struct `AgentConfiguration` tương đương (chứa `OthelaURL`, `NodeID`, `PollInterval`, `WorkspaceDir`)
-- [ ] Cho phép Agent nhận flag `--config=/path/to/config.yaml`
-- [ ] file cấu hình được mount vào container tại `/var/lib/helvilette/agent.yaml`
-- [ ] **Thứ tự ưu tiên cấu hình:** CLI Flags > YAML Config > Environment Variables > Defaults
-
-### 1.6.3. Docker Compose Update
-- [ ] Tạo các file YAML config mẫu cho 3 Agents (`agent-01.yaml`, `agent-02.yaml`, `agent-03.yaml`) trong thư mục `data/configs/`
-- [ ] Mount thư mục configs vào Docker container
-- [ ] Sửa command chạy Agent trong `docker-compose.yaml` để truyền `--config` flag thay vì chỉ dùng ENV.
 
 ---
 
