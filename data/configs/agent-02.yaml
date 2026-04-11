@@ -1,0 +1,4 @@
+othelaURL: "http://othela:8080"
+nodeID: "agent-02"
+pollInterval: "5s"
+workspaceDir: "/tmp/helvilette"

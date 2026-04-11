@@ -8,8 +8,26 @@
 - [x] **Othela Integration** - `NewServerWithLoader()`, `GET /api/v1/playbooks`
 - [x] **Agent PlaybookPath** - Chạy từ đúng thư mục, roles resolve
 - [x] **Agent Zerolog** - Structured logging toàn bộ execution flow
-- [x] **nginx-collection** - Sample collection cho testing
+- [x] **nginx-collection** - Sample collection for testing
 - [x] **First Real Deployment** - NGINX installed on WSL2 via full E2E flow!
+
+### Phase 1.5: Ephemeral Testing Environment (Docker Compose) ✅
+- [x] Xây dựng `Dockerfile.othela` (Go 1.25.6, Debian slim LTS)
+- [x] Xây dựng `Dockerfile.agent` (Go 1.25.6, Ubuntu 24.04 + Ansible)
+- [x] Cấu hình `docker-compose.yaml` với 1 Othela + 3 Agents
+- [x] Cập nhật `Makefile` với các lệnh quản lý cluster (`make up`, `make down`, `make logs`)
+- [x] Xử lý truyền `NODE_ID` và cấu hình qua ENV
+
+### Phase 1.6: Kubernetes-Style Configuration ✅
+- [x] Tích hợp package CLI (`cobra`) cho Othela
+- [x] Hỗ trợ các flags cơ bản cho Othela: `--port`, `--data-dir`, `--log-level`
+- [x] Bỏ hardcode port 8080 trong `cmd/othela/main.go`
+- [x] Tích hợp yaml parser (`gopkg.in/yaml.v3`) và `cobra` cho Agent
+- [x] Định nghĩa struct `AgentConfiguration` (`OthelaURL`, `NodeID`, `PollInterval`, `WorkspaceDir`)
+- [x] Cho phép Agent nhận flag `--config=/path/to/config.yaml`
+- [x] Thứ tự ưu tiên cấu hình Agent: CLI Flags > YAML Config > Environment Variables > Defaults
+- [x] Tạo các file YAML config mẫu cho 3 Agents
+- [x] Cập nhật `docker-compose.yaml` để truyền `--config` flag thay vì dùng ENV, và mount config files vào `/var/lib/helvilette/agent.yaml`
 
 ---
 
@@ -58,27 +76,6 @@ playbooks-repo/
 - Agent cache repos locally
 - Version control via Git SHA
 - Giống cách K8s kubelet hoạt động
-
----
-
-## 1. Phase 1.5: Ephemeral Testing Environment (Docker Compose) 🚧 NEW
-**Mục tiêu:** Tạo một môi trường lab cục bộ dùng Docker Compose để giả lập một cụm bao gồm 1 Othela (Control Plane) và nhiều Agent (Nodes). Cụm này có thể dễ dàng spin up / tear down để kiểm thử các tính năng phân phối Job.
-
-### 1.5.1. Dockerfiles
-- [ ] Xây dựng `Dockerfile.othela`: Build binary cho Othela server, sử dụng base image nhỏ gọn gọn nhẹ (Debian slim LTS)
-- [ ] Xây dựng `Dockerfile.agent`: Build binary cho Agent. **Lưu ý quan trọng:** Base image cho agent cần cài đặt sẵn `ansible` và các dependencies cần thiết để chạy playbooks (Ubuntu 24.04)
-
-### 1.5.2. Docker Compose Configuration (`docker-compose.yaml`)
-- [ ] Cấu hình Othela service (port mapping 8080:8080, volumes cho dữ liệu trạng thái nếu cần)
-- [ ] Cấu hình 3+ Agent services (`node-1`, `node-2`, `node-3`)
-- [ ] Setup network cho phép các Agent kết nối tới Othela thông qua hostname nội bộ (e.g., `http://othela:8080`)
-- [ ] Mount volumes (tuỳ chọn) cho Agents để dễ dàng debug playbook execution hoặc cache.
-
-### 1.5.3. Development Workflow (Makefile)
-- [ ] Thêm lệnh `make up` (build images + `docker-compose up -d`)
-- [ ] Thêm lệnh `make down` (`docker-compose down -v`)
-- [ ] Thêm lệnh `make logs` (xem logs tổng hợp)
-- [ ] Cập nhật tài liệu README.md cách dùng môi trường dev
 
 ---
 
@@ -147,5 +144,4 @@ type Job struct {
 - [ ] Node registration với Othela
 - [ ] Health check endpoints
 - [ ] Graceful shutdown handling
-- [ ] Configuration via env/config file
 - [ ] Systemd service files

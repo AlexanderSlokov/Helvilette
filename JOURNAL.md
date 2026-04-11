@@ -1,5 +1,67 @@
 # Helvilette Development Journal
 
+## Session: 2026-04-11 — Ephemeral Cluster & K8s-Style Configuration
+
+### Sự kiện đáng chú ý
+**Dựng thành công môi trường giả lập (Ephemeral Lab) và chuẩn hóa cấu hình hệ thống.**
+
+Thay vì test trên một máy WSL2 với các tham số hard-code, hệ thống giờ đây chạy như một tiểu cụm (mini-cluster) bao gồm 1 Control Plane và 3 Worker Nodes qua Docker Compose.
+
+---
+
+### Tasks hoàn thành trong session
+
+#### 1. Môi trường Ephemeral Lab (Phase 1.5)
+- Xây dựng thành công `Dockerfile.othela` siêu nhẹ dựa trên Debian slim.
+- Xây dựng thành công `Dockerfile.agent` dực trên Ubuntu 24.04 tích hợp sẵn Ansible.
+- Tạo một cụm Docker Compose chuẩn: 1 Othela `control-plane` và 3 `nodes` kết nối nhau qua internal network.
+- Đồng bộ Go version lên 1.25.6.
+- Tổ chức lại Workflow bằng Makefile (`make up`, `make down`, `make logs`).
+
+#### 2. K8s-Style Configuration (Phase 1.6)
+- **Othela:** Chuyển đổi Othela từ hard-code sang sử dụng CLI Flags qua `cobra` (theo phong cách `kube-apiserver`). Hệ thống hỗ trợ `--port`, `--data-dir`, `--log-level`.
+- **Agent:** Chuyển đổi Agent sử dụng file YAML kết hợp Flags (theo phong cách `kubelet`).
+  - Định nghĩa struct `AgentConfiguration` chuẩn xác.
+  - Tích hợp `gopkg.in/yaml.v3` và parser theo thứ tự ưu tiên: CLI Flags > YAML Config > ENV > Defaults.
+  - Xóa bỏ việc bị hardcoded `NODE_ID=agent-01`, Agent nay nhận ID từ `/var/lib/helvilette/agent.yaml`.
+
+---
+
+### Phân tích giá trị của milestone này
+
+#### 1. Tại sao lại cần môi trường Ephemeral?
+Với các hệ thống phân tán, việc không có công cụ spin-up nhanh các Node sẽ khiến quá trình kiểm thử gặp nút thắt (bottleneck). Giờ đây, chỉ bằng 1 lệnh `make up`, tôi có ngay một cụm với 3 Agent gửi poll về Othela liên tục, giúp quan sát rõ được luồng log và test được hiệu suất network nội bộ.
+
+#### 2. Phát hiện Critical Bug trong kiến trúc "Content-Based"
+Sau khi chạy thử cụm Docker Compose, một lỗi chí mạng đã xuất hiện trong luồng Playbook Execution:
+```json
+{"level":"warn","component":"executor","error":"chdir /app/helvillette/othela/data/playbooks/nginx-collection: no such file or directory","job_id":"job-e3edf2135582d6a3","message":"playbook execution failed"}
+```
+**Nguyên nhân gốc rễ (Root Cause):** Othela truyền PlaybookPath cứng (Absolute path trên Server) qua cho Agent. Nhưng Agent lại chạy trong một Container hoàn toàn tách biệt (không hề có thư mục đó). 
+=> Lỗi này chính là chất xúc tác cực kỳ quan trọng chứng minh rằng: **Phải thực thi Phase 2: GitOps Playbook Distribution ngay lập tức!** Agent cần tự clone playbook về workspace nội bộ của nó.
+
+---
+
+### Lessons Learned
+
+1. **Kubernetes Design Patterns là kim chỉ nam tốt:** Việc cấu hình Othela như `apiserver` (chỉ dùng cờ) và Agent như `kubelet` (dùng file yaml `config.yaml` kết hợp cờ `--config`) giúp phân tách vai trò cực kỳ rõ ràng, dễ bảo trì.
+2. **Path Dependency Trap:** Tuyệt đối không bao giờ được gửi Absolute Path từ một máy tính này sang một máy tính khác trong các mô hình Client-Server. Mọi thứ phải được giải quyết thông qua Relative Path và Git Repos.
+3. **Go Module Syncing in Docker:** Nhớ chạy `go mod tidy` trong quá trình build Docker (Multi-stage) để tránh việc lệch `go.sum` khi thêm mới các module (như `cobra` và `yaml.v3`).
+
+---
+
+### Next Steps (Prioritized)
+
+1. [ ] **Phase 2.1: GitOps Job Struct** - Cập nhật struct `Job` trong `pkg/types/types.go` sang mô hình Reference-based (Git URL, Version) thay vì Content-based.
+2. [ ] **Phase 2.2: Git Clone Logic** - Viết module cho Agent để có khả năng tự `git clone` hoặc pull repository tại WorkspaceDir của nó trước khi thực thi lệnh Ansible.
+3. [ ] **Pull Request & Code Review** - Commit toàn bộ những thay đổi về môi trường Lab lên nhánh chính trước khi bước sang tính năng GitOps.
+
+---
+
+*Session end: 2026-04-11 14:40 UTC*
+*Total time: ~1.5 hours*
+*Cụm test: 1 Othela, 3 Agents (Dockerized)* 🚀
+
 ## Session: 2026-02-01 — The Living Skeleton Comes Alive
 
 ### Sự kiện lịch sử

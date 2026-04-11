@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   othela:
     build:
@@ -9,9 +7,10 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./data/othela:/data
+      - ./helvillette/othela/data:/app/helvillette/othela/data
     networks:
       - helvilette-net
+    command: ["./othela", "--port=8080", "--data-dir=helvillette/othela/data/playbooks", "--log-level=info"]
     restart: unless-stopped
 
   node-1:
@@ -19,10 +18,10 @@ services:
       context: .
       dockerfile: Dockerfile.agent
     image: helvilette-agent:local
-    environment:
-      - OTHELA_URL=http://othela:8080
+    command: ["./agent", "--config=/var/lib/helvilette/agent.yaml"]
     volumes:
       - ./data/agent-1:/tmp/helvilette
+      - ./data/configs/agent-01.yaml:/var/lib/helvilette/agent.yaml
     networks:
       - helvilette-net
     depends_on:
@@ -34,10 +33,10 @@ services:
       context: .
       dockerfile: Dockerfile.agent
     image: helvilette-agent:local
-    environment:
-      - OTHELA_URL=http://othela:8080
+    command: ["./agent", "--config=/var/lib/helvilette/agent.yaml"]
     volumes:
       - ./data/agent-2:/tmp/helvilette
+      - ./data/configs/agent-02.yaml:/var/lib/helvilette/agent.yaml
     networks:
       - helvilette-net
     depends_on:
@@ -49,10 +48,10 @@ services:
       context: .
       dockerfile: Dockerfile.agent
     image: helvilette-agent:local
-    environment:
-      - OTHELA_URL=http://othela:8080
+    command: ["./agent", "--config=/var/lib/helvilette/agent.yaml"]
     volumes:
       - ./data/agent-3:/tmp/helvilette
+      - ./data/configs/agent-03.yaml:/var/lib/helvilette/agent.yaml
     networks:
       - helvilette-net
     depends_on:
