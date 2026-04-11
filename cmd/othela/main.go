@@ -13,11 +13,16 @@ func main() {
 		log.Printf("[WARN] Could not initialize playbook loader: %v", err)
 		log.Printf("[WARN] Falling back to default server (no playbook loading)")
 		server := NewServer()
-		server.ListenAndServe(":8080")
+		err := server.ListenAndServe(":8080")
+		if err != nil {
+			return
+		}
 		return
 	}
 
 	server := NewServerWithLoader(loader)
-	server.ListenAndServe(":8080")
+	err = server.ListenAndServe(":8080")
+	if err != nil {
+		return
+	}
 }
-

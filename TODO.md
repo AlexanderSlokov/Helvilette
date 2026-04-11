@@ -8,8 +8,15 @@
 - [x] **Othela Integration** - `NewServerWithLoader()`, `GET /api/v1/playbooks`
 - [x] **Agent PlaybookPath** - Chạy từ đúng thư mục, roles resolve
 - [x] **Agent Zerolog** - Structured logging toàn bộ execution flow
-- [x] **nginx-collection** - Sample collection cho testing
+- [x] **nginx-collection** - Sample collection for testing
 - [x] **First Real Deployment** - NGINX installed on WSL2 via full E2E flow!
+
+### Phase 1.5: Ephemeral Testing Environment (Docker Compose) ✅
+- [x] Xây dựng `Dockerfile.othela` (Go 1.25.6, Debian slim LTS)
+- [x] Xây dựng `Dockerfile.agent` (Go 1.25.6, Ubuntu 24.04 + Ansible)
+- [x] Cấu hình `docker-compose.yaml` với 1 Othela + 3 Agents
+- [x] Cập nhật `Makefile` với các lệnh quản lý cluster (`make up`, `make down`, `make logs`)
+- [x] Xử lý truyền `NODE_ID` và cấu hình qua ENV
 
 ---
 
@@ -61,26 +68,7 @@ playbooks-repo/
 
 ---
 
-## Phase 1.5: Ephemeral Testing Environment (Docker Compose)
-**Mục tiêu:** Tạo một môi trường lab cục bộ dùng Docker Compose để giả lập một cụm bao gồm 1 Othela (Control Plane) và nhiều Agent (Nodes). Cụm này có thể dễ dàng spin up / tear down để kiểm thử các tính năng phân phối Job.
-
-### 1.5.1. Dockerfiles
-- [x] Xây dựng `Dockerfile.othela`: Build binary cho Othela server, sử dụng base image nhỏ gọn gọn nhẹ (Debian slim LTS)
-- [x] Xây dựng `Dockerfile.agent`: Build binary cho Agent. **Lưu ý quan trọng:** Base image cho agent cần cài đặt sẵn `ansible` và các dependencies cần thiết để chạy playbooks (Ubuntu 24.04)
-
-### 1.5.2. Docker Compose Configuration (`docker-compose.yaml`)
-- [x] Cấu hình Othela service (port mapping 8080:8080, volumes cho dữ liệu trạng thái nếu cần)
-- [x] Cấu hình 3+ Agent services (`node-1`, `node-2`, `node-3`)
-- [x] Setup network cho phép các Agent kết nối tới Othela thông qua hostname nội bộ (e.g., `http://othela:8080`)
-- [x] Mount volumes (tuỳ chọn) cho Agents để dễ dàng debug playbook execution hoặc cache.
-
-### 1.5.3. Development Workflow (Makefile)
-- [x] Thêm lệnh `make up` (build images + `docker-compose up -d`)
-- [x] Thêm lệnh `make down` (`docker-compose down -v`)
-- [x] Thêm lệnh `make logs` (xem logs tổng hợp)
-- [x] Cập nhật tài liệu README.md cách dùng môi trường dev
-
-## Phase 1.6: Kubernetes-Style Configuration 🚧 NEW
+## 1. Phase 1.6: Kubernetes-Style Configuration 🚧 NEW
 **Mục tiêu:** Quản lý cấu hình linh hoạt và chuẩn chỉ theo mô hình của Kubernetes: Othela (Control Plane) dùng Command-line Flags (giống `kube-apiserver`), còn Agent (Node) dùng YAML file kết hợp Flags (giống `kubelet`).
 
 ### 1.6.1. Othela CLI Flags (`kube-apiserver` style)
@@ -167,5 +155,4 @@ type Job struct {
 - [ ] Node registration với Othela
 - [ ] Health check endpoints
 - [ ] Graceful shutdown handling
-- [ ] Configuration via env/config file
 - [ ] Systemd service files
