@@ -19,10 +19,9 @@ wait_for_gitea() {
 
 wait_for_gitea
 
-# In this setup, we rely on docker-compose executing the gitea admin command directly
-# before git-seeder pushes. Alternatively, if no user exists, the push will fail.
-# For a fully automated mock, we would use an API or pre-created database.
-# Here we just try to push assuming the user exists (or the repo is public).
+# Adding a small sleep to ensure user creation from Makefile completes
+# before trying to create a repo
+sleep 5
 
 # Using Basic Auth for the new user directly to create repo
 echo "Creating repository $REPO_NAME..."
@@ -35,19 +34,29 @@ curl -s -X POST "$GITEA_URL/api/v1/user/repos" \
 # Initialize local git repo and push
 echo "Pushing data to repository..."
 cd /data/playbooks/$REPO_NAME || exit 1
+
+# Fix for "fatal: detected dubious ownership in repository"
+git config --global --add safe.directory /data/playbooks/$REPO_NAME
+
 git config --global user.email "$USER@helvilette.local"
 git config --global user.name "$USER"
-git config --global init.defaultBranch main
+
+# Need to explicitly checkout main so we have a branch to push
+# If there are no files, commit will fail. We make sure we have something to commit.
 
 if [ ! -d .git ]; then
-    git init
+    git init -b main
     git add .
     git commit -m "Initial commit from seed"
+else
+    # If git is already initialized, just add new files and commit
+    git add .
+    git commit -m "Update from seed" || echo "Nothing to commit"
+    git branch -M main
 fi
 
 git remote remove origin 2>/dev/null || true
 git remote add origin "http://$USER:$PASS@git-server:3000/$USER/$REPO_NAME.git"
-git branch -M main
 git push -u origin main -f || echo "Failed to push to Gitea. Make sure the user exists."
 
 echo "Seeding completed successfully!"
