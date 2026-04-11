@@ -40,19 +40,18 @@ git config --global --add safe.directory /data/playbooks/$REPO_NAME
 
 git config --global user.email "$USER@helvilette.local"
 git config --global user.name "$USER"
-
-# Need to explicitly checkout main so we have a branch to push
-# If there are no files, commit will fail. We make sure we have something to commit.
+git config --global init.defaultBranch main
 
 if [ ! -d .git ]; then
-    git init -b main
+    git init
+    git checkout -b main || git branch -M main
     git add .
     git commit -m "Initial commit from seed"
 else
     # If git is already initialized, just add new files and commit
     git add .
     git commit -m "Update from seed" || echo "Nothing to commit"
-    git branch -M main
+    git branch -M main || git checkout -b main
 fi
 
 git remote remove origin 2>/dev/null || true
