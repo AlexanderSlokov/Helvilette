@@ -217,7 +217,8 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 		logger.Info().Str("job_id", job.JobID).Str("repo_url", job.RepoURL).Msg("ensuring git repo")
 		if err := git.EnsureRepo(job.RepoURL, repoDir, job.Version); err != nil {
 			logger.Error().Err(err).Str("repo", job.RepoURL).Msg("failed to ensure git repo")
-			return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to pull git repo: %v"}`, err))
+			b, _ := json.Marshal(map[string]string{"error": fmt.Sprintf("Failed to pull git repo: %v", err)})
+			return "Failed", b
 		}
 
 		if job.PlaybookPath != "" && !filepath.IsAbs(job.PlaybookPath) {
@@ -309,10 +310,13 @@ func (a *Agent) ProcessJob(job *Job) error {
 		Bool("has_path", job.PlaybookPath != "").
 		Msg("processing new job")
 
-	a.lastJobID = job.JobID
-
 	// Execute the playbook
 	status, output := a.ExecutePlaybook(job)
+	
+	// Only consider the job processed if it didn't fail due to initial fetching
+	if status == "Success" {
+		a.lastJobID = job.JobID
+	}
 
 	// Send report
 	report := Report{
