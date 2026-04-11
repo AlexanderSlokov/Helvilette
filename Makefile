@@ -1,7 +1,7 @@
 # Helvilette Makefile
 # =====================
 
-.PHONY: all build test test-verbose test-cover cover-html clean run-othela run-agent
+.PHONY: all build test test-verbose test-cover cover-html clean run-othela run-agent up down logs
 
 # Default target
 all: build
@@ -40,6 +40,16 @@ run-agent:
 # Run Agent (production mode with JSON logs)
 run-agent-prod:
 	go run ./cmd/agent
+
+# Docker Compose Targets
+up:
+	docker compose up -d --build
+
+down:
+	docker compose down -v
+
+logs:
+	docker compose logs -f
 
 # Clean build artifacts
 clean:

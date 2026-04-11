@@ -61,9 +61,30 @@ playbooks-repo/
 
 ---
 
-## 1. Phase 2: GitOps Playbook Distribution 🎯 NEXT
+## 1. Phase 1.5: Ephemeral Testing Environment (Docker Compose) 🚧 NEW
+**Mục tiêu:** Tạo một môi trường lab cục bộ dùng Docker Compose để giả lập một cụm bao gồm 1 Othela (Control Plane) và nhiều Agent (Nodes). Cụm này có thể dễ dàng spin up / tear down để kiểm thử các tính năng phân phối Job.
 
-### 1.1. Job Struct Update
+### 1.5.1. Dockerfiles
+- [ ] Xây dựng `Dockerfile.othela`: Build binary cho Othela server, sử dụng base image nhỏ gọn gọn nhẹ (Debian slim LTS)
+- [ ] Xây dựng `Dockerfile.agent`: Build binary cho Agent. **Lưu ý quan trọng:** Base image cho agent cần cài đặt sẵn `ansible` và các dependencies cần thiết để chạy playbooks (Ubuntu 24.04)
+
+### 1.5.2. Docker Compose Configuration (`docker-compose.yaml`)
+- [ ] Cấu hình Othela service (port mapping 8080:8080, volumes cho dữ liệu trạng thái nếu cần)
+- [ ] Cấu hình 3+ Agent services (`node-1`, `node-2`, `node-3`)
+- [ ] Setup network cho phép các Agent kết nối tới Othela thông qua hostname nội bộ (e.g., `http://othela:8080`)
+- [ ] Mount volumes (tuỳ chọn) cho Agents để dễ dàng debug playbook execution hoặc cache.
+
+### 1.5.3. Development Workflow (Makefile)
+- [ ] Thêm lệnh `make up` (build images + `docker-compose up -d`)
+- [ ] Thêm lệnh `make down` (`docker-compose down -v`)
+- [ ] Thêm lệnh `make logs` (xem logs tổng hợp)
+- [ ] Cập nhật tài liệu README.md cách dùng môi trường dev
+
+---
+
+## 2. Phase 2: GitOps Playbook Distribution 🎯 NEXT
+
+### 2.1. Job Struct Update
 ```go
 type Job struct {
     JobID        string `json:"job_id"`
@@ -78,7 +99,7 @@ type Job struct {
 }
 ```
 
-### 1.2. Othela Components
+### 2.2. Othela Components
 - [ ] `pkg/git/repo.go` - Git repository abstraction
 - [ ] `pkg/git/watcher.go` - Periodic sync từ remote repos
 - [ ] `pkg/git/registry.go` - Manage multiple repos
@@ -86,7 +107,7 @@ type Job struct {
 - [ ] API: `GET /api/v1/repos` - List registered repos
 - [ ] API: `POST /api/v1/repos/{id}/sync` - Trigger manual sync
 
-### 1.3. Agent Components  
+### 2.3. Agent Components  
 - [ ] `pkg/git/cache.go` - Local repo cache management
 - [ ] `pkg/git/clone.go` - Clone/pull operations
 - [ ] Update `ExecutePlaybook()` to:
@@ -94,27 +115,27 @@ type Job struct {
   2. Clone if missing, pull if version changed
   3. Execute from cached path
 
-### 1.4. Verification
+### 2.4. Verification
 - [ ] Unit tests cho git package
 - [ ] Integration test: Othela register repo → Agent clone → Execute
 - [ ] Test với real GitHub repo
 
 ---
 
-## 2. Agent Intelligence (State Awareness)
+## 3. Agent Intelligence (State Awareness)
 - [ ] **Drift Detection:** `ansible-playbook --check` trước khi apply
 - [ ] **Security:** mTLS cho kết nối giữa Agent và Othela
 
 ---
 
-## 3. UI/Dashboard
-### 3.1. Core Features:
+## 4. UI/Dashboard
+### 4.1. Core Features:
 - [ ] Danh sách Node với status badges
 - [ ] Trạng thái Job gần nhất
 - [ ] Log realtime (Stream qua WebSocket)
 - [ ] Playbook catalog browser
 
-### 3.2. Design Reference:
+### 4.2. Design Reference:
 - **Style:** Death Stranding Terminal UI
 - **Fonts:** SST Roman, Sackers Gothic, Monospace cho data
 - **Colors:** Dark base + neon accents (cyan, orange)
@@ -122,7 +143,7 @@ type Job struct {
 
 ---
 
-## 4. Production Readiness
+## 5. Production Readiness
 - [ ] Node registration với Othela
 - [ ] Health check endpoints
 - [ ] Graceful shutdown handling
