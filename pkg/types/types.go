@@ -8,8 +8,10 @@ import "encoding/json"
 // It contains an Ansible playbook to be executed on the target node.
 type Job struct {
 	JobID           string `json:"job_id"`
-	PlaybookContent string `json:"playbook_content"`
-	PlaybookPath    string `json:"playbook_path,omitempty"` // Full path to run from (enables role resolution)
+	RepoURL         string `json:"repo_url,omitempty"` // git@github.com:org/playbooks.git
+	Version         string `json:"version,omitempty"`  // commit SHA, tag, or branch
+	PlaybookContent string `json:"playbook_content,omitempty"`
+	PlaybookPath    string `json:"playbook_path,omitempty"` // Full path or relative path to run from
 }
 
 // Report represents the execution report from an Agent.

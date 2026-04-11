@@ -20,7 +20,7 @@ Sau khi E2E Test của Ephemeral Lab (Phase 1.5) đã pass hoàn toàn nhờ fix
 - Cơ chế Update Dispatcher: Thay vì đọc Playbook Content lên bộ nhớ và truyền đi, Othela giờ đây sẽ bắn Job reference có chứa `RepoURL`.
 
 #### 3. Agent Kế thừa luồng Git Pull (`cmd/agent`)
-- Viết package `pkg/git/clone.go` tích hợp vào Agent (dùng `go-git` module hoặc gọi `os/exec` gọi luôn lệnh `git`).
+- Viết package `pkg/git/clone.go` tích hợp vào Agent (dùng `go-git` module).
 - Cấu hình lại hàm `ExecutePlaybook()`:
   - B1: Resolve đường dẫn caching của Git repo bên trong `WorkspaceDir` (VD: `/tmp/helvilette/repos/nginx-collection`).
   - B2: Kiểm tra coi repo đã clone chưa. Nếu chưa -> `git clone <RepoURL>`.

@@ -20,6 +20,7 @@ import (
 	"helvilette/pkg/log"
 	"helvilette/pkg/systemd"
 	"helvilette/pkg/types"
+	"helvilette/pkg/git"
 )
 
 // AgentConfiguration holds the full configuration for the agent,
@@ -208,7 +209,32 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 		return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to create workspace: %v"}`, err))
 	}
 
-	if job.PlaybookPath != "" {
+	if job.RepoURL != "" {
+		reposDir := filepath.Join(a.config.WorkspaceDir, "repos")
+		repoName := filepath.Base(job.RepoURL)
+		repoDir := filepath.Join(reposDir, repoName)
+
+		logger.Info().Str("job_id", job.JobID).Str("repo_url", job.RepoURL).Msg("ensuring git repo")
+		if err := git.EnsureRepo(job.RepoURL, repoDir, job.Version); err != nil {
+			logger.Error().Err(err).Str("repo", job.RepoURL).Msg("failed to ensure git repo")
+			return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to pull git repo: %v"}`, err))
+		}
+
+		if job.PlaybookPath != "" && !filepath.IsAbs(job.PlaybookPath) {
+			playbookFile = filepath.Join(repoDir, job.PlaybookPath)
+		} else {
+			playbookFile = filepath.Join(repoDir, "playbook.yml")
+		}
+		// Run from the root of the repository so roles folders resolve
+		workDir = repoDir
+
+		logger.Info().
+			Str("job_id", job.JobID).
+			Str("repo_url", job.RepoURL).
+			Str("version", job.Version).
+			Str("work_dir", workDir).
+			Msg("executing playbook from git repo")
+	} else if job.PlaybookPath != "" {
 		// Use provided path - enables role resolution
 		// Ensure that the agent can read the file correctly by looking into the workspace dir.
 		playbookFile = job.PlaybookPath

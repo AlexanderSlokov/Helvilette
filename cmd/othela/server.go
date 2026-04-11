@@ -68,10 +68,12 @@ func NewServerWithLoader(loader *playbook.Loader) *Server {
 		if err == nil {
 			s.currentJob = Job{
 				JobID:           "job-" + playbooks[0].ID,
-				PlaybookContent: content,
-				PlaybookPath:    playbooks[0].FullPath,
+				RepoURL:         "http://git-server:3000/helvilette/nginx-collection.git",
+				Version:         "main",
+				PlaybookPath:    "playbook.yml",
+				PlaybookContent: content, // fallback
 			}
-			log.Printf("[LOADER] Loaded playbook: %s (path: %s)", playbooks[0].Name, playbooks[0].FullPath)
+			log.Printf("[LOADER] Mocked GitOps Job with RepoURL: %s", s.currentJob.RepoURL)
 		}
 	}
 
