@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,13 +26,40 @@ type AgentConfig struct {
 	PollInterval time.Duration
 }
 
-// DefaultConfig returns the default agent configuration
-func DefaultConfig() AgentConfig {
-	return AgentConfig{
+// ConfigFromEnv reads configuration from environment variables, falling back to defaults
+func ConfigFromEnv() AgentConfig {
+	config := AgentConfig{
 		OthelaURL:    "http://localhost:8080/api/v1",
 		NodeID:       "agent-01",
 		PollInterval: 5 * time.Second,
 	}
+
+	if url := os.Getenv("OTHELA_URL"); url != "" {
+		// Ensure it has the api/v1 suffix if not provided
+		if !filepath.HasPrefix(url, "http") {
+			url = "http://" + url
+		}
+		// Basic check to see if /api/v1 is appended, if not, append it for backward compatibility
+		if len(url) > 0 && url[len(url)-1] == '/' {
+			url = url[:len(url)-1]
+		}
+		if len(url) < 7 || url[len(url)-7:] != "/api/v1" {
+			url = url + "/api/v1"
+		}
+		config.OthelaURL = url
+	}
+
+	if nodeID := os.Getenv("NODE_ID"); nodeID != "" {
+		config.NodeID = nodeID
+	}
+
+	if interval := os.Getenv("POLL_INTERVAL"); interval != "" {
+		if parsed, err := time.ParseDuration(interval); err == nil {
+			config.PollInterval = parsed
+		}
+	}
+
+	return config
 }
 
 // Agent represents the Helvilette agent
@@ -41,7 +69,7 @@ type Agent struct {
 	httpClient *http.Client
 }
 
-// Type aliases for backward compatibility within this package
+// Job Add Type aliases for backward compatibility within this package
 type Job = types.Job
 type Report = types.Report
 
@@ -60,7 +88,12 @@ func (a *Agent) Poll() (*Job, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Othela: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Othela returned status: %s", resp.Status)
@@ -86,10 +119,15 @@ func (a *Agent) SendReport(report Report) error {
 	if err != nil {
 		return fmt.Errorf("failed to send report: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Othela returned status: %s", resp.Status)
+		return fmt.Errorf("othela returned with status: %s", resp.Status)
 	}
 
 	return nil
@@ -272,7 +310,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	agent := NewAgent(DefaultConfig())
+	agent := NewAgent(ConfigFromEnv())
 
 	go func() {
 		sig := <-sigChan
@@ -280,5 +318,8 @@ func main() {
 		cancel()
 	}()
 
-	agent.Run(ctx)
+	err := agent.Run(ctx)
+	if err != nil {
+		return
+	}
 }

@@ -21,6 +21,7 @@ services:
     image: helvilette-agent:local
     environment:
       - OTHELA_URL=http://othela:8080
+      - NODE_ID=agent-01
     volumes:
       - ./data/agent-1:/tmp/helvilette
     networks:
@@ -36,6 +37,7 @@ services:
     image: helvilette-agent:local
     environment:
       - OTHELA_URL=http://othela:8080
+      - NODE_ID=agent-02
     volumes:
       - ./data/agent-2:/tmp/helvilette
     networks:
@@ -51,6 +53,7 @@ services:
     image: helvilette-agent:local
     environment:
       - OTHELA_URL=http://othela:8080
+      - NODE_ID=agent-03
     volumes:
       - ./data/agent-3:/tmp/helvilette
     networks:
