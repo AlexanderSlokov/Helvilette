@@ -1,0 +1,8 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache curl jq git docker-cli
+
+COPY tests/e2e/git-seed.sh /seed/git-seed.sh
+RUN chmod +x /seed/git-seed.sh
+
+ENTRYPOINT ["/seed/git-seed.sh"]

@@ -52,10 +52,7 @@ logs:
 	docker compose logs -f
 
 seed:
-	@echo "Waiting for Gitea to be fully ready before seeding..."
-	@sleep 10
-	docker exec -u git $$(docker ps -qf "name=git-server") gitea admin user create --username helvilette --password helvilette123 --email helvilette@helvilette.local --admin || true
-	docker compose restart git-seeder
+	@echo "Seeding is now automatically handled by docker-compose via git-seeder container."
 
 e2e: down up seed logs
 

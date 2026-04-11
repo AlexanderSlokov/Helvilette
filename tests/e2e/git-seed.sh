@@ -19,9 +19,16 @@ wait_for_gitea() {
 
 wait_for_gitea
 
-# Adding a small sleep to ensure user creation from Makefile completes
-# before trying to create a repo
-sleep 5
+# Find the git-server container using docker CLI and create the admin user
+echo "Creating admin user via docker exec..."
+CONTAINER_ID=$(docker ps -qf "name=git-server" | head -n 1)
+if [ -n "$CONTAINER_ID" ]; then
+    docker exec -u git $CONTAINER_ID gitea admin user create --username $USER --password $PASS --email $USER@helvilette.local --admin || echo "User may already exist"
+else
+    echo "Warning: git-server container not found by docker cli!"
+fi
+
+sleep 2
 
 # Using Basic Auth for the new user directly to create repo
 echo "Creating repository $REPO_NAME..."
@@ -59,5 +66,3 @@ git remote add origin "http://$USER:$PASS@git-server:3000/$USER/$REPO_NAME.git"
 git push -u origin main -f || echo "Failed to push to Gitea. Make sure the user exists."
 
 echo "Seeding completed successfully!"
-# Keep container running
-tail -f /dev/null
