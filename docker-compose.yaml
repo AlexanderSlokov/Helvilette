@@ -24,6 +24,7 @@ services:
     volumes:
       - ./data/agent-1:/tmp/helvilette
       - ./data/configs/agent-01.yaml:/var/lib/helvilette/agent.yaml
+      - ./tests/e2e/data:/app/helvillette/othela/data
     networks:
       - helvilette-net
     depends_on:
@@ -40,6 +41,7 @@ services:
     volumes:
       - ./data/agent-2:/tmp/helvilette
       - ./data/configs/agent-02.yaml:/var/lib/helvilette/agent.yaml
+      - ./tests/e2e/data:/app/helvillette/othela/data
     networks:
       - helvilette-net
     depends_on:
@@ -56,6 +58,7 @@ services:
     volumes:
       - ./data/agent-3:/tmp/helvilette
       - ./data/configs/agent-03.yaml:/var/lib/helvilette/agent.yaml
+      - ./tests/e2e/data:/app/helvillette/othela/data
     networks:
       - helvilette-net
     depends_on:
