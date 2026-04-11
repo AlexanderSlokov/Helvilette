@@ -1,12 +1,14 @@
 # Helvilette: The Walking Skeleton (PoC)
 
 Proof of Concept for **Helvilette** - An OS Service Orchestration Framework.
-This project demonstrates the "Outbound-only" agent architecture where a Go binary acts as a wrapper around Ansible, pulling jobs from a central Control Plane (Othela).
+This project demonstrates the "Outbound-only" agent architecture where a Go binary acts as a wrapper around Ansible, 
+pulling jobs from a central Control Plane (Othela).
 
 ## 1. Prerequisites
 
-- **WSL 2 (Ubuntu 24.04)** or any Linux environment.
-- **Go 1.22+** (Verified with your installation at `/usr/local/go/bin/go`).
+- **Docker** and **Docker Compose** (for testing environment)
+- **WSL 2 (Ubuntu 24.04)** or any Linux environment (for manual testing)
+- **Go 1.25.6** (Verified with your installation at `/usr/local/go/bin/go`).
 - **Ansible** (`sudo apt install ansible`).
 
 ## 2. Directory Structure
@@ -16,21 +18,40 @@ helvilette/
 ├── cmd/
 │   ├── othela/      # Control Plane (Server)
 │   └── agent/       # Node Agent (Client)
-└── go.mod
+├── pkg/             # Shared packages
+├── helvillette/     # Playbook configurations
+└── docker-compose.yaml
 ```
 
-## 3. How to Run (Manual Sanity Test)
+## 3. How to Run 
+
+### Method A: Ephemeral Testing Environment (Recommended)
+
+You can spin up a complete testing cluster containing 1 Control Plane (Othela) and 3 Node Agents using Docker Compose.
+
+```bash
+# Build images and start the cluster
+make up
+
+# View real-time logs from all nodes
+make logs
+
+# Tear down the cluster and remove volumes
+make down
+```
+
+### Method B: Manual Sanity Test (WSL/Local)
 
 We will open two terminals in WSL to simulate the Server and the Client.
 
-### Terminal 1: Othela (Control Plane)
+#### Terminal 1: Othela (Control Plane)
 Start the server listening on port 8080.
 ```bash
 cd /mnt/e/Helvilette
 /usr/local/go/bin/go run ./cmd/othela
 ```
 
-### Terminal 2: Helvilette Agent
+#### Terminal 2: Helvilette Agent
 Start the agent. It will poll Othela every 5 seconds.
 ```bash
 cd /mnt/e/Helvilette
