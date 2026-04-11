@@ -6,10 +6,10 @@
 - [x] **Shared Types** - `pkg/types/types.go` với `Job`, `Report`
 - [x] **Playbook Loader** - `pkg/playbook/` (Scan, Load, Get) với 87.8% coverage
 - [x] **Othela Integration** - `NewServerWithLoader()`, `GET /api/v1/playbooks`
-- [x] **Agent PlaybookPath** - Chạy từ đúng thư mục, roles resolve
-- [x] **Agent Zerolog** - Structured logging toàn bộ execution flow
+- [x] **Agent PlaybookPath** – Chạy từ đúng thư mục, roles resolve
+- [x] **Agent Zerolog** – Structured logging toàn bộ execution flow
 - [x] **nginx-collection** - Sample collection for testing
-- [x] **First Real Deployment** - NGINX installed on WSL2 via full E2E flow!
+- [x] **First Real Deployment** – NGINX installed on WSL2 via full E2E flow!
 
 ### Phase 1.5: Ephemeral Testing Environment (Docker Compose) ✅
 - [x] Xây dựng `Dockerfile.othela` (Go 1.25.6, Debian slim LTS)
@@ -28,6 +28,11 @@
 - [x] Thứ tự ưu tiên cấu hình Agent: CLI Flags > YAML Config > Environment Variables > Defaults
 - [x] Tạo các file YAML config mẫu cho 3 Agents
 - [x] Cập nhật `docker-compose.yaml` để truyền `--config` flag thay vì dùng ENV, và mount config files vào `/var/lib/helvilette/agent.yaml`
+
+### Phase 1.7: Git Server Mocking for E2E Tests ✅
+- [x] Tích hợp Gitea (`gitea/gitea`) vào `docker-compose.yaml`
+- [x] Thêm init container (`git-seeder`) dùng alpine/git để tạo user/repo tự động
+- [x] Viết script `tests/e2e/git-seed.sh` thực thi việc clone mock playbook lên Gitea qua API
 
 ---
 
@@ -96,7 +101,7 @@ type Job struct {
 }
 ```
 
-### 2.2. Othela Components
+### 2.2. Othela Parts
 - [ ] `pkg/git/repo.go` - Git repository abstraction
 - [ ] `pkg/git/watcher.go` - Periodic sync từ remote repos
 - [ ] `pkg/git/registry.go` - Manage multiple repos
@@ -109,8 +114,8 @@ type Job struct {
 - [ ] `pkg/git/clone.go` - Clone/pull operations
 - [ ] Update `ExecutePlaybook()` to:
   1. Check if repo exists locally
-  2. Clone if missing, pull if version changed
-  3. Execute from cached path
+  2. Clone if missing, pull if a version changed
+  3. Execute from a cached path
 
 ### 2.4. Verification
 - [ ] Unit tests cho git package
@@ -135,7 +140,7 @@ type Job struct {
 ### 4.2. Design Reference:
 - **Style:** Death Stranding Terminal UI
 - **Fonts:** SST Roman, Sackers Gothic, Monospace cho data
-- **Colors:** Dark base + neon accents (cyan, orange)
+- **Colors:** Dark base and neon accents (cyan, orange)
 - **Effects:** Subtle glitch, hologram glow (không quá nặng)
 
 ---

@@ -1,0 +1,33 @@
+# Dockerignore cho Helvilette
+
+# Git
+.git
+.gitignore
+
+# Go
+bin/
+vendor/
+
+# IDE/Editors
+.idea/
+.vscode/
+
+# Data volumes (cực kỳ quan trọng để tránh lỗi load build context lớn hoặc permission denied)
+data/
+tests/e2e/data/
+helvillette/othela/data/
+
+# Documentation
+docs/
+JOURNAL.md
+README.md
+TODO.md
+
+# Các file sinh ra trong quá trình build
+*.out
+*.html
+*.yaml
+*.yml
+!docker-compose.yaml
+!Dockerfile.othela
+!Dockerfile.agent

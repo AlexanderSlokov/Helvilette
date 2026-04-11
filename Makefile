@@ -1,7 +1,7 @@
 # Helvilette Makefile
 # =====================
 
-.PHONY: all build test test-verbose test-cover cover-html clean run-othela run-agent up down logs
+.PHONY: all build test test-verbose test-cover cover-html clean run-othela run-agent up down logs seed e2e
 
 # Default target
 all: build
@@ -50,6 +50,14 @@ down:
 
 logs:
 	docker compose logs -f
+
+seed:
+	@echo "Waiting for Gitea to be fully ready before seeding..."
+	@sleep 10
+	docker exec -u git $$(docker ps -qf "name=git-server") gitea admin user create --username helvilette --password helvilette123 --email helvilette@helvilette.local --admin || true
+	docker compose restart git-seeder
+
+e2e: down up seed logs
 
 # Clean build artifacts
 clean:
