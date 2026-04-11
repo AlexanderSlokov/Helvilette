@@ -51,6 +51,12 @@ down:
 logs:
 	docker compose logs -f
 
+seed:
+	docker exec -u git $(docker ps -qf "name=git-server") gitea admin user create --username helvilette --password helvilette123 --email helvilette@helvilette.local --admin
+	docker compose restart git-seeder
+
+e2e: down up seed logs
+
 # Clean build artifacts
 clean:
 	rm -rf bin/

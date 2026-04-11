@@ -7,11 +7,13 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./helvillette/othela/data:/app/helvillette/othela/data
+      - ./tests/e2e/data:/app/helvillette/othela/data
     networks:
       - helvilette-net
     command: ["./othela", "--port=8080", "--data-dir=helvillette/othela/data/playbooks", "--log-level=info"]
     restart: unless-stopped
+    depends_on:
+      - git-server
 
   node-1:
     build:
@@ -26,6 +28,7 @@ services:
       - helvilette-net
     depends_on:
       - othela
+      - git-server
     restart: unless-stopped
 
   node-2:
@@ -41,6 +44,7 @@ services:
       - helvilette-net
     depends_on:
       - othela
+      - git-server
     restart: unless-stopped
 
   node-3:
@@ -56,12 +60,42 @@ services:
       - helvilette-net
     depends_on:
       - othela
+      - git-server
     restart: unless-stopped
 
-# Idea: Cần một server Git để phục vụ cái repo giả lập "helvillette/othela/data/playbooks/nginx-collection"
-# Tiêu chí: nhẹ, dễ cấu hình, tương tác giống GitHub / GitLab, hoặc
-# nó làm tốt vai trò là mirror của repo thật trên VCS flatform, giúp file compose này
-# có thể kiểm thử e2e mà không liên tục spam vào máy chủ git
+  git-server:
+    image: gitea/gitea:1.21.11
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=sqlite3
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__server__DOMAIN=git-server
+      - GITEA__server__SSH_DOMAIN=git-server
+      - GITEA__server__ROOT_URL=http://git-server:3000/
+    volumes:
+      - ./data/gitea:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"
+      - "222:22"
+    networks:
+      - helvilette-net
+    restart: unless-stopped
+
+  # Wait for Gitea to be fully ready, create user, create repo, and push
+  git-seeder:
+    image: alpine:3.19
+    volumes:
+      - ./tests/e2e/data/playbooks:/data/playbooks
+      - ./tests/e2e/git-seed.sh:/seed/git-seed.sh
+    networks:
+      - helvilette-net
+    depends_on:
+      - git-server
+    command: >
+      /bin/sh -c "apk add --no-cache curl jq git && chmod +x /seed/git-seed.sh && /seed/git-seed.sh"
 
 networks:
   helvilette-net:

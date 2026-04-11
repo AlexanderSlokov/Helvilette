@@ -29,6 +29,11 @@
 - [x] Tạo các file YAML config mẫu cho 3 Agents
 - [x] Cập nhật `docker-compose.yaml` để truyền `--config` flag thay vì dùng ENV, và mount config files vào `/var/lib/helvilette/agent.yaml`
 
+### Phase 1.7: Git Server Mocking for E2E Tests ✅
+- [x] Tích hợp Gitea (`gitea/gitea`) vào `docker-compose.yaml`
+- [x] Thêm init container (`git-seeder`) dùng alpine/git để tạo user/repo tự động
+- [x] Viết script `tests/e2e/git-seed.sh` thực thi việc clone mock playbook lên Gitea qua API
+
 ---
 
 ## 0. Architecture Decisions (Đã chốt)
@@ -76,26 +81,6 @@ playbooks-repo/
 - Agent cache repos locally
 - Version control via Git SHA
 - Giống cách K8s kubelet hoạt động
-
----
-
-## 1. Phase 1.7: Git Server Mocking for E2E Tests 🚧 NEW
-**Mục tiêu:** Cần một máy chủ Git nhỏ gọn (như Gitea, Gogs hoặc một Git server đơn giản) 
-chạy dưới dạng một container trong Docker Compose. Container này sẽ lưu trữ giả lập các Playbook repos (như `nginx-collection`), 
-giúp Othela và các Agent thực hiện luồng E2E test kéo (clone/pull) Git qua HTTP(s) mà không bị phụ thuộc vào GitHub/GitLab 
-hoặc không bị "spam" network ra internet.
-
-### 1.7.1. Chọn giải pháp Git Server
-- [ ] Đánh giá và chọn image phù hợp (Gitea `gitea/gitea` thường nhẹ và rất phù hợp cho Lab).
-
-### 1.7.2. Tích hợp vào `docker-compose.yaml`
-- [ ] Thêm service `git-server` vào file.
-- [ ] Cấu hình cổng (VD: 3000) và mount volume để lưu trữ code.
-
-### 1.7.3. Seeding Data (Mock Repos)
-- [ ] Viết một script hoặc init container để tự động tạo repo `nginx-collection` trên `git-server` 
-và đẩy dữ liệu mẫu vào (push code) khi cluster khởi động.
-- [ ] Cập nhật lại `Makefile` hoặc tài liệu để mô tả quá trình seeding này.
 
 ---
 
