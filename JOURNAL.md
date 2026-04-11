@@ -1,5 +1,37 @@
 # Helvilette Development Journal
 
+## Session: 2026-04-11 — Phase 2: GitOps Playbook Distribution Planning
+
+### Sự kiện đáng chú ý
+**Lên kế hoạch chi tiết cho Phase 2: GitOps Playbook Distribution.**
+
+Sau khi E2E Test của Ephemeral Lab (Phase 1.5) đã pass hoàn toàn nhờ fix volume map, dự án đã chính thức bắt tay vào việc chuyển đổi kiến trúc truyền tải Playbook từ "Content-based" (gắn raw YAML) sang "Reference-based" (sử dụng Git URL giống K8s Image Pull).
+
+---
+
+### Phase 2 Implementation Plan
+
+#### 1. Mở rộng Data Models (`pkg/types/types.go`)
+- Cập nhật struct `Job`: thêm `RepoURL` (VD: `http://git-server:3000/helvilette/nginx-collection.git`), `Version` (branch, tag, hoặc commit SHA). Giữ `PlaybookPath` để trỏ vào sub-directory trong clone.
+
+#### 2. Nâng cấp Othela Control Plane (`cmd/othela`)
+- Xây dựng package `pkg/git/registry.go` để quản lý danh sách các repository được đăng ký.
+- Exposed API: `POST /api/v1/repos` & `GET /api/v1/repos`.
+- Cơ chế Update Dispatcher: Thay vì đọc Playbook Content lên bộ nhớ và truyền đi, Othela giờ đây sẽ bắn Job reference có chứa `RepoURL`.
+
+#### 3. Agent Kế thừa luồng Git Pull (`cmd/agent`)
+- Viết package `pkg/git/clone.go` tích hợp vào Agent (dùng `go-git` module hoặc gọi `os/exec` gọi luôn lệnh `git`).
+- Cấu hình lại hàm `ExecutePlaybook()`:
+  - B1: Resolve đường dẫn caching của Git repo bên trong `WorkspaceDir` (VD: `/tmp/helvilette/repos/nginx-collection`).
+  - B2: Kiểm tra coi repo đã clone chưa. Nếu chưa -> `git clone <RepoURL>`.
+  - B3: Nếu có rồi -> gọi `git fetch` và `git checkout <Version>`.
+  - B4: Trỏ `cmd.Dir` vào đúng sub-folder lấy từ `PlaybookPath` và gọi Ansible thực thi.
+- Update module Report để trả về những rủi ro ở tầng Git clone.
+
+#### 4. Verification & Testing
+- Đổi script Mocking qua Othela để nó sử dụng `RepoURL` trỏ về user `helvilette` trên container `git-server` (Gitea).
+- Make sure Agent tự pull và `ansible-playbook` báo success mà không thông qua local mounted playbooks.
+
 ## Session: 2026-04-11 — Ephemeral Cluster & K8s-Style Configuration
 
 ### Sự kiện đáng chú ý
