@@ -35,7 +35,7 @@ spec:
       # target: "group_vars/all/vault.yaml"
       # 4. HashiCorp Vault
     nginx_vault_pass:
-      type: vault
+      type: hashicorp_vault
       source: "https://vault.my-company.com/v1/secret/data/nginx-collection"
       target: "group_vars/all/vault.yaml"
       # Còn một mớ requirements nữa mới xác thực được với Vault, nhưng đại khái là có thể đọc secret từ Vault
@@ -50,7 +50,6 @@ spec:
       # Agent nào khai báo có label này sẽ nhận được cấu hình bên dưới
       nodeSelector:
         role: "edge-proxy"
-        tier: "standard"
       ansible:
         # Sẽ được inject vào /dev/shm/nginx_collection_vault_secret.txt
         vault-password-file: nginx_collection_vault_secret
@@ -59,11 +58,27 @@ spec:
         extra_vars:
           nginx_http_port: "80"
           nginx_https_port: "443"
+      # Quan trọng: cấu hình probes để agent có thể theo dõi trạng thái của dịch vụ
+      probes:
+        # Tên dịch vụ systemd mà Agent cần theo dõi
+        nginx.service: 
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+        mariadb.service:
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost"]
+            periodSeconds: 15
+            failureThreshold: 2
 
     - name: "high-performance-proxies"
       nodeSelector:
         role: "edge-proxy"
-        tier: "premium"
       ansible:
         vault-password-file: nginx_vault_pass
         extra_vars:
