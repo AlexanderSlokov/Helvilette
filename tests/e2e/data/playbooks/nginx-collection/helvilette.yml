@@ -11,11 +11,12 @@ metadata:
   labels:
     app: "nginx-collection"
     version: "1.0.0"
-  description: Install and configure NGINX proxy fleet
+  description: "Install NGINX proxy fleet across edge nodes"
 
 spec:
   repo: "http://git-server:3000/helvilette/nginx-collection.git"
   branch: "main"
+  playbook: "site.yml" # Chỉ định rõ file playbook gốc
   # Định nghĩa secret key của Ansible vault đi kèm với playbook
   vault:
     nginx_collection_vault_secret:
@@ -33,82 +34,45 @@ spec:
       # source: "my-secret"
       # target: "group_vars/all/vault.yaml"
       # 4. HashiCorp Vault
-      # type: vault
-      # source: "https://vault.my-company.com/v1/secret/data/nginx-collection"
-      # target: "group_vars/all/vault.yaml"
+    nginx_vault_pass:
+      type: vault
+      source: "https://vault.my-company.com/v1/secret/data/nginx-collection"
+      target: "group_vars/all/vault.yaml"
       # Còn một mớ requirements nữa mới xác thực được với Vault, nhưng đại khái là có thể đọc secret từ Vault
       # 5. Docker secret:
       # type: docker
       # source: "/run/secrets/my-secret"
       # target: "group_vars/all/vault.yaml"
 
-  # TODO: Dựa vào hostname hay dựa vào label để  map node vào cluster?
-  # Agent sẽ dựa vào các thông tin sau để  tạo file "helvilette_inventory.ini"
-  # và custom playbook của nó, "helvilette_playbook.yaml" để Ansible cấu hình được cả resource quota qua systemd.
-  nodes:
-    # Tên của mỗi node cần phải trùng với hostname của node / Helvilette tag
-    node-1:
+  # Thay vì hardcode từng node, ta định nghĩa các "Node Group" (như khái niệm Deployment/DaemonSet)
+  nodeGroups:
+    - name: "standard-proxies"
+      # Agent nào khai báo có label này sẽ nhận được cấu hình bên dưới
+      nodeSelector:
+        role: "edge-proxy"
+        tier: "standard"
       ansible:
         # Sẽ được inject vào /dev/shm/nginx_collection_vault_secret.txt
         vault-password-file: nginx_collection_vault_secret
-        # Các giá trị trong extra_vars sẽ được apiserver Othela truyền xuống cho agent để override lại vars trong playbook
-        # Lưu ý: ghi đè lên cả vars trong group_vars /roles vars của playbook
-        # Lưu tại /var/lib/helvilette/agent/extra_vars/nginx-collection.json
+        # Các giá trị trong extra_vars sẽ được apiserver Othela truyền xuống cho agent 
+        # để override lại vars trong playbook. Lưu tại /var/lib/helvilette/agent/extra_vars/nginx-collection.json
         extra_vars:
           nginx_http_port: "80"
           nginx_https_port: "443"
-    node-2:
+
+    - name: "high-performance-proxies"
+      nodeSelector:
+        role: "edge-proxy"
+        tier: "premium"
       ansible:
-        vault-password-file: nginx_collection_vault_secret
+        vault-password-file: nginx_vault_pass
         extra_vars:
           nginx_https_port: "443"
-          nginx_max_clients: "2000"
           nginx_worker_processes: "auto"
-          nginx_worker_connections: "1024"
-          nginx_keepalive_timeout: "60"
-      # Cấu hình systemd... thì là cái file .service đó, chả khác cái gì cả, drop in replacement.
-      systemd:
-        nginx.service:
-          config:
-            unit:
-              Description: "Nginx Reverse Proxy for MySQL"
-              After: ["network.target", "mysql.service"]
-            service:
-              User: nginx
-              Group: nginx
-              WorkingDirectory: /var/lib/nginx
-              ExecStart: ["/usr/sbin/nginx", "-g", "daemon off;"]
-              Restart: always
-              RestartSec: 5
-              MemoryLimit: 512M
-              CPUQuota: 50%
-              Environment: ["NODE_ENV=production", "PORT=3000"]
-            install:
-              WantedBy: multi-user.target
-      seccomp:
-        nginx.service:
-          # Chỉ cần slam một cái như thế này là xong. Agent tự chép file seccomp từ k8s nên không cần lo.
-          config: "RuntimeDefault"
-
-          # Hoặc, thích custom thì viết hẳn một file mới như sau:
-          # file: "nginx-seccomp.json"
-          # config:
-            # defaultAction: "SCMP_ACT_ERRNO"
-            # architectures: [
-            #   "SCMP_ARCH_X86_64",
-            #   "SCMP_ARCH_X86",
-            #   "SCMP_ARCH_X32"
-            # ]
-            # syscalls:
-            #   "names": [
-            #       "accept4", "bind", "listen", "connect", "socket", "setsockopt", "sendto", "recvmsg",
-            #       "epoll_create1", "epoll_ctl", "epoll_wait", "epoll_pwait", "poll", "select",
-            #       "read", "write", "open", "openat", "close", "stat", "fstat", "lseek",
-            #       "mmap", "munmap", "mprotect", "brk",
-            #       "futex", "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
-            #       "getpid", "getuid", "geteuid", "getppid",
-            #       "exit", "exit_group", "nanosleep",
-            #       "sendfile"
-            #   ]
-            #   "action": "SCMP_ACT_ALLOW"
-            #   "comment": "Nginx use sendfile to optimize static file transfer"
+          nginx_worker_connections: "4096"
+          # Truyền ý định về tài nguyên vào biến. 
+          # Ansible Playbook sẽ dùng biến này để render file systemd!
+          systemd_memory_limit: "2G"
+          systemd_cpu_quota: "100%"
+          # Bật tính năng seccomp, logic cấu hình cụ thể đã nằm sẵn trong Ansible Roles
+          enable_seccomp_runtime_default: true
