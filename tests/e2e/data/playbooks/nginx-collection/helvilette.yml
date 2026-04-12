@@ -48,22 +48,67 @@ spec:
   nodes:
     # Tên của mỗi node cần phải trùng với hostname của node / Helvilette tag
     node-1:
-      vault: nginx_collection_vault_secret
-      # Các giá trị trong extra_vars sẽ được apiserver Othela truyền xuống cho agent để override lại vars trong playbook
-      # Lưu ý: ghi đè lên cả vars trong group_vars /roles vars của playbook
-      extra_vars:
-        nginx_http_port: "80"
-        nginx_https_port: "443"
+      ansible:
+        # Sẽ được inject vào /dev/shm/nginx_collection_vault_secret.txt
+        vault-password-file: nginx_collection_vault_secret
+        # Các giá trị trong extra_vars sẽ được apiserver Othela truyền xuống cho agent để override lại vars trong playbook
+        # Lưu ý: ghi đè lên cả vars trong group_vars /roles vars của playbook
+        # Lưu tại /var/lib/helvilette/agent/extra_vars/nginx-collection.json
+        extra_vars:
+          nginx_http_port: "80"
+          nginx_https_port: "443"
     node-2:
-      vault: nginx_collection_vault_secret
-      extra_vars:
-        nginx_https_port: "443"
-        nginx_max_clients: "2000"
-        nginx_worker_processes: "auto"
-        nginx_worker_connections: "1024"
-        nginx_keepalive_timeout: "60"
+      ansible:
+        vault-password-file: nginx_collection_vault_secret
+        extra_vars:
+          nginx_https_port: "443"
+          nginx_max_clients: "2000"
+          nginx_worker_processes: "auto"
+          nginx_worker_connections: "1024"
+          nginx_keepalive_timeout: "60"
+      # Cấu hình systemd... thì là cái file .service đó, chả khác cái gì cả, drop in replacement.
+      systemd:
+        nginx.service:
+          config:
+            unit:
+              Description: "Nginx Reverse Proxy for MySQL"
+              After: ["network.target", "mysql.service"]
+            service:
+              User: nginx
+              Group: nginx
+              WorkingDirectory: /var/lib/nginx
+              ExecStart: ["/usr/sbin/nginx", "-g", "daemon off;"]
+              Restart: always
+              RestartSec: 5
+              MemoryLimit: 512M
+              CPUQuota: 50%
+              Environment: ["NODE_ENV=production", "PORT=3000"]
+            install:
+              WantedBy: multi-user.target
+      seccomp:
+        nginx.service:
+          # Chỉ cần slam một cái như thế này là xong. Agent tự chép file seccomp từ k8s nên không cần lo.
+          config: "RuntimeDefault"
 
-    
-
-
-
+          # Hoặc, thích custom thì viết hẳn một file mới như sau:
+          # file: "nginx-seccomp.json"
+          # config:
+            # defaultAction: "SCMP_ACT_ERRNO"
+            # architectures: [
+            #   "SCMP_ARCH_X86_64",
+            #   "SCMP_ARCH_X86",
+            #   "SCMP_ARCH_X32"
+            # ]
+            # syscalls:
+            #   "names": [
+            #       "accept4", "bind", "listen", "connect", "socket", "setsockopt", "sendto", "recvmsg",
+            #       "epoll_create1", "epoll_ctl", "epoll_wait", "epoll_pwait", "poll", "select",
+            #       "read", "write", "open", "openat", "close", "stat", "fstat", "lseek",
+            #       "mmap", "munmap", "mprotect", "brk",
+            #       "futex", "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
+            #       "getpid", "getuid", "geteuid", "getppid",
+            #       "exit", "exit_group", "nanosleep",
+            #       "sendfile"
+            #   ]
+            #   "action": "SCMP_ACT_ALLOW"
+            #   "comment": "Nginx use sendfile to optimize static file transfer"
