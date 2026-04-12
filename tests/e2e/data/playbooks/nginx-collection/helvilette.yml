@@ -1,12 +1,67 @@
 # nginx-collection/helvilette.yml
-name: nginx-stack
-version: "1.0.0"
-description: Install and configure NGINX
+# File này được xem là global inventory cho toàn bộ playbook,
+apiVersion: apps/v1
+kind: Cluster
+metadata:
+  name: "my-company-edge-proxy-fleet"
+  # Mặc định, Helvilette luôn triển khai trong namespace "default".
+  # Nếu chỉ định tên namespace, Othela sẽ truyền thêm cấu hình để Agent tạo namespace đó
+  # tại tất cả các node trong cluster.
+  namespace: "default"
+  labels:
+    app: "nginx-collection"
+    version: "1.0.0"
+  description: Install and configure NGINX proxy fleet
 
-# Default values (như values.yaml)
-defaults:
-  nginx_port: 80
-  worker_processes: auto
+spec:
+  repo: "http://git-server:3000/helvilette/nginx-collection.git"
+  branch: "main"
+  # Định nghĩa secret key của Ansible vault đi kèm với playbook
+  vault:
+    nginx_collection_vault_secret:
+      # Othela có thể đọc secret từ:
+      # 1. exported env của host OS đang chạy Othela
+      type: exported
+      source: "H8E_VAULT_SECRET"
+      target: "group_vars/all/vault.yaml" # Vị trí file vault.yaml trong playbook (tính từ root content)
+      # 2. .env file nằm cùng với helvilette.yml. Cái này cần xem lại, không khả thi thì dẹp.
+      # type: .env
+      # source: "NGINX_COLLECTION_VAULT_SECRET"
+      # target: "group_vars/all/vault.yaml"
+      # 3. Secret mount từ K8s secret
+      # type: k8s
+      # source: "my-secret"
+      # target: "group_vars/all/vault.yaml"
+      # 4. HashiCorp Vault
+      # type: vault
+      # source: "https://vault.my-company.com/v1/secret/data/nginx-collection"
+      # target: "group_vars/all/vault.yaml"
+      # Còn một mớ requirements nữa mới xác thực được với Vault, nhưng đại khái là có thể đọc secret từ Vault
+      # 5. Docker secret:
+      # type: docker
+      # source: "/run/secrets/my-secret"
+      # target: "group_vars/all/vault.yaml"
 
-profiles:
-  - webserver
+  # TODO: Dựa vào hostname hay dựa vào label để  map node vào cluster?
+  nodes:
+    # Tên của mỗi node cần phải trùng với hostname của node / Helvilette tag
+    node-1:
+      vault_key: nginx_collection_vault_secret
+      # Các giá trị trong extra_vars sẽ được apiserver Othela truyền xuống cho agent để override lại vars trong playbook
+      # Lưu ý: ghi đè lên cả vars trong group_vars /roles vars của playbook
+      extra_vars:
+        nginx_http_port: "80"
+        nginx_https_port: "443"
+    node-2:
+      vault_key: nginx_collection_vault_secret
+      extra_vars:
+        nginx_https_port: "443"
+        nginx_max_clients: "2000"
+        nginx_worker_processes: "auto"
+        nginx_worker_connections: "1024"
+        nginx_keepalive_timeout: "60"
+
+    
+
+
+
