@@ -43,6 +43,8 @@ spec:
       # target: "group_vars/all/vault.yaml"
 
   # TODO: Dựa vào hostname hay dựa vào label để  map node vào cluster?
+  # Agent sẽ dựa vào các thông tin sau để  tạo file "helvilette_inventory.ini"
+  # và custom playbook của nó, "helvilette_playbook.yaml" để Ansible cấu hình được cả resource quota qua systemd.
   nodes:
     # Tên của mỗi node cần phải trùng với hostname của node / Helvilette tag
     node-1:
