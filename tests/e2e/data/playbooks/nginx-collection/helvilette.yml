@@ -48,14 +48,14 @@ spec:
   nodes:
     # Tên của mỗi node cần phải trùng với hostname của node / Helvilette tag
     node-1:
-      vault_key: nginx_collection_vault_secret
+      vault: nginx_collection_vault_secret
       # Các giá trị trong extra_vars sẽ được apiserver Othela truyền xuống cho agent để override lại vars trong playbook
       # Lưu ý: ghi đè lên cả vars trong group_vars /roles vars của playbook
       extra_vars:
         nginx_http_port: "80"
         nginx_https_port: "443"
     node-2:
-      vault_key: nginx_collection_vault_secret
+      vault: nginx_collection_vault_secret
       extra_vars:
         nginx_https_port: "443"
         nginx_max_clients: "2000"
