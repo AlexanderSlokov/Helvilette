@@ -16,7 +16,7 @@ metadata:
 spec:
   repo: "http://git-server:3000/helvilette/nginx-collection.git"
   branch: "main"
-  playbook: "site.yml" # Chỉ định rõ file playbook gốc
+  playbook: "playbook.yml" # Chỉ định rõ file playbook gốc
   # Định nghĩa secret key của Ansible vault đi kèm với playbook
   vault:
     nginx_collection_vault_secret:
