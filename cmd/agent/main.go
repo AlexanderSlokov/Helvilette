@@ -43,7 +43,7 @@ func DefaultConfig() AgentConfiguration {
 }
 
 // LoadConfig merges default, yaml file, environment, and CLI configurations
-func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval string) (AgentConfiguration, error) {
+func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspaceDir string) (AgentConfiguration, error) {
 	config := DefaultConfig()
 
 	// 1. Load from YAML file if provided
@@ -109,6 +109,9 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval string) (Ag
 		if parsed, err := time.ParseDuration(cliPollInterval); err == nil {
 			config.PollInterval = parsed
 		}
+	}
+	if cliWorkspaceDir != "" {
+		config.WorkspaceDir = cliWorkspaceDir
 	}
 
 	// Format URL
@@ -407,6 +410,7 @@ func main() {
 		othelaURL    string
 		nodeID       string
 		pollInterval string
+		workspaceDir string
 	)
 
 	var rootCmd = &cobra.Command{
@@ -414,7 +418,7 @@ func main() {
 		Short: "Helvilette Node Agent",
 		Long:  `The Node Agent runs on client machines, polls Othela for jobs, and executes Ansible playbooks.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cfg, err := LoadConfig(configFile, othelaURL, nodeID, pollInterval)
+			cfg, err := LoadConfig(configFile, othelaURL, nodeID, pollInterval, workspaceDir)
 			if err != nil {
 				log.Fatal().Err(err).Msg("failed to load configuration")
 			}
@@ -444,6 +448,7 @@ func main() {
 	rootCmd.Flags().StringVar(&othelaURL, "othela-url", "", "URL of the Othela control plane")
 	rootCmd.Flags().StringVar(&nodeID, "node-id", "", "Unique identifier for this node")
 	rootCmd.Flags().StringVar(&pollInterval, "poll-interval", "", "Interval between polls to Othela (e.g. 5s)")
+	rootCmd.Flags().StringVar(&workspaceDir, "workspace-dir", "", "Directory for storing agent workspace files")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

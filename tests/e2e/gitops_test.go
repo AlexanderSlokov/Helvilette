@@ -46,7 +46,7 @@ var _ = Describe("GitOps Workflow", func() {
 				"apk add --no-cache git git-daemon && git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack",
 			},
 			Mounts: testcontainers.ContainerMounts{
-				testcontainers.BindMount(absDataPath, testcontainers.ContainerMountTarget("/git/nginx-collection")),
+				testcontainers.BindMount(filepath.Join(absDataPath, "nginx-collection"), testcontainers.ContainerMountTarget("/git/nginx-collection")),
 			},
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{
@@ -74,10 +74,13 @@ var _ = Describe("GitOps Workflow", func() {
 			Cmd: []string{
 				"./othela",
 				"--port=8080",
-				"--data-dir=./tests/e2e/data/playbooks",
+				"--data-dir=/app/data/playbooks",
 			},
 			Env: map[string]string{
 				"HELV_TEST_REPO_URL": "git://git-server:9418/nginx-collection",
+			},
+			Mounts: testcontainers.ContainerMounts{
+				testcontainers.BindMount(absDataPath, testcontainers.ContainerMountTarget("/app/data/playbooks")),
 			},
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{
@@ -107,14 +110,12 @@ var _ = Describe("GitOps Workflow", func() {
 				networkName: {"agent-01"},
 			},
 			// Create a config file via command or ENV for the agent
-			// Actually the Dockerfile.agent says: CMD ["./agent"]
-			// And docker-compose mapped the config file. We can just use CLI flags instead of config file.
 			Cmd: []string{
 				"./agent",
-				"--config=/var/lib/helvilette/agent.yaml", // we will mount this
-			},
-			Mounts: testcontainers.ContainerMounts{
-				testcontainers.BindMount(filepath.Join(repoRoot, "data/configs/agent-01.yaml"), testcontainers.ContainerMountTarget("/var/lib/helvilette/agent.yaml")),
+				"--othela-url=http://othela:8080",
+				"--node-id=agent-01",
+				"--poll-interval=5s",
+				"--workspace-dir=/tmp/helvilette",
 			},
 		}
 		agentContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
