@@ -54,8 +54,8 @@ logs:
 seed:
 	@echo "Seeding is now automatically handled by docker-compose via git-seeder container."
 
-e2e: down up seed logs
-
+e2e:
+	@export PATH=$$PATH:~/go/bin:/home/stella/sdk/go1.26.1/bin && ginkgo run ./tests/e2e/...
 # Clean build artifacts
 clean:
 	rm -rf bin/

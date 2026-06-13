@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -66,9 +67,13 @@ func NewServerWithLoader(loader *playbook.Loader) *Server {
 	if err == nil && len(playbooks) > 0 {
 		content, err := loader.Load(playbooks[0].ID)
 		if err == nil {
+			repoURL := os.Getenv("HELV_TEST_REPO_URL")
+			if repoURL == "" {
+				repoURL = "http://git-server:3000/helvilette/nginx-collection.git"
+			}
 			s.currentJob = Job{
 				JobID:           "job-" + playbooks[0].ID,
-				RepoURL:         "http://git-server:3000/helvilette/nginx-collection.git",
+				RepoURL:         repoURL,
 				Version:         "main",
 				PlaybookPath:    "playbook.yml",
 				PlaybookContent: content, // fallback

@@ -49,19 +49,26 @@ cd /mnt/e/Helvilette
 5. **Agent** captures the JSON output and sends it back to Othela.
 6. **Othela** prints the JSON report to the console.
 
-### Method B: Ephemeral Testing Environment (Recommended)
+### Method B: Automated E2E Testing with Ginkgo and Testcontainers (Recommended)
 
-You can spin up a complete testing cluster containing one Control Plane (Othela) and three Node Agents using Docker Compose.
+Helvilette uses a BDD testing framework ([Ginkgo](https://onsi.github.io/ginkgo/)) combined with [Testcontainers-Go](https://golang.testcontainers.org/) to run end-to-end (E2E) tests.  
 
+When you run the E2E suite, it will:
+1. Automatically build a lightweight `git-daemon` container serving test playbooks over `git://`.
+2. Build the `othela` (Control Plane) and `agent` container images directly from the local Dockerfiles.
+3. Assert the state and outputs of the GitOps reconciliation loop programmatically.
+4. Clean up all containers and networks automatically.
+
+**Prerequisites:**
+You need `ginkgo` installed on your machine:
 ```bash
-# Build images and start the cluster
-make up
+go install github.com/onsi/ginkgo/v2/ginkgo@latest
+```
 
-# View real-time logs from all nodes
-make logs
-
-# Tear down the cluster and remove volumes
-make down
+**Running the tests:**
+```bash
+# Run the complete E2E test suite
+make e2e
 ```
 
 ## Contributing
@@ -78,27 +85,23 @@ CONTRIBUTING.md).
 
 ### In Scope
 
-[TODO: PROJECTNAME] is intended to [TODO: Core functionality]. As such, the
-project will implement or has implemented:
+### In Scope
 
-* [TODO: High-level Item 1]
-* [TODO: High-level Item 2]
-* [TODO: High-level Item 3]
+Helvilette is intended to provide a pull-based delivery layer for Ansible. As such, the project will implement or has implemented:
 
+* Desired-state reconciliation loop at the OS/systemd level
+* Pull-based GitOps model without inbound SSH access
+* Lightweight agent architecture suitable for edge computing and IoT devices
 
 ### Out of Scope
 
-[TODO: PROJECTNAME] will be used in a cloud native environment with other
-tools. The following specific functionality will therefore not be incorporated:
+Helvilette will be used in a cloud native environment with other tools. The following specific functionality will therefore not be incorporated:
 
-* [TODO: Excluded function 1]
-* [TODO: Excluded function 2]
+* Container orchestration (like Kubernetes or Docker Swarm)
+* General-purpose CI/CD pipelines (like GitHub Actions or GitLab CI)
+* Core configuration management capabilities (Ansible performs this function)
 
-
-[TODO: PROJECTNAME] implements [TODO: List of major features, existing or
-planned], through [TODO: Implementation
-requirements/language/architecture/etc.]. It will not cover [TODO: short list
-of excluded items]
+Helvilette implements an OS service orchestration framework, through an API-driven control plane (Othela) and local node agents written in Go. It will not cover infrastructure provisioning (e.g., Terraform or Pulumi).
 
 ## Communications
 
