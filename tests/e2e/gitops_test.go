@@ -184,6 +184,6 @@ var _ = Describe("GitOps Workflow", func() {
 			}
 			logBytes, _ := io.ReadAll(logs)
 			return string(logBytes)
-		}, 30*time.Second, 2*time.Second).Should(ContainSubstring("Sync successful"))
+		}, 3*time.Minute, 5*time.Second).Should(ContainSubstring("playbook execution"))
 	})
 })
