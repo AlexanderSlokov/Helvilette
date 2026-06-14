@@ -4,10 +4,17 @@ Tài liệu này tổng hợp roadmap và các hạng mục công việc (backlo
 
 ## 1. Core Concept & Pivot Review
 Trước khi nhận việc, contributor / AI Agent cần nắm vững định hướng sản phẩm:
-- **Helvilette là Ansible delivery + drift protection layer**, nằm ở tầng OS/systemd. Nó biến Ansible playbook thành hệ thống tự vận hành mà không cần SSH, không cần CI/CD pipeline, ngăn ngừa config drift.
-- Helvilette không cạnh tranh với K8s/Nomad, không phải CI/CD thay thế GitHub Actions.
-- Target audience: 12-50 VM, hybrid infra, team 1-2 người.
-- Mô hình tương đồng: Othela giống `kube-apiserver` (Control Plane). Helvilette Agent giống `kubelet` (chạy trên các node, kéo việc, thực thi và báo cáo).
+- **Helvilette là Ansible delivery + drift protection layer** (Declarative GitOps Continuous Delivery cho Ansible), nằm ở tầng OS/systemd. Nó biến Ansible playbook thành hệ thống tự vận hành (desired-state reconciliation loop) mà không cần SSH.
+- **In Scope (Phạm vi giải quyết):** 
+  - Mô hình GitOps Pull-based không cần inbound SSH access, loại bỏ config drift.
+  - Agent architecture mỏng nhẹ, tối ưu cho hybrid infra, **Edge computing và IoT devices**.
+  - Target audience: 12-50 VM, team 1-2 người.
+- **Out of Scope (Không làm/cạnh tranh):**
+  - Container orchestration (như Kubernetes, Nomad, Docker Swarm).
+  - General-purpose CI/CD pipelines (như GitHub Actions, GitLab CI).
+  - Infrastructure provisioning (việc đó dành cho Terraform/Pulumi).
+  - Core configuration management (Ansible đảm nhiệm việc này).
+- **Mô hình tương đồng:** Othela giống `kube-apiserver` (Control Plane). Helvilette Agent giống `kubelet` (chạy trên các node, kéo việc, thực thi và báo cáo).
 
 ### 1.1. Architecture Decisions
 - **Hybrid Model cho `helvilette.yml`:** Nằm TRONG Ansible Playbook repo. Chứa metadata + defaults. Secrets/env vars do Othela inject.
