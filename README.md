@@ -86,9 +86,7 @@ CONTRIBUTING.md).
 
 ### In Scope
 
-### In Scope
-
-Helvilette is intended to provide a pull-based delivery layer for Ansible. As such, the project will implement or has implemented:
+Helvilette is intended to provide a pull-based delivery platform for Ansible. As such, the project will implement or has implemented:
 
 * Desired-state reconciliation loop at the OS/systemd level
 * Pull-based GitOps model without inbound SSH access
@@ -96,13 +94,12 @@ Helvilette is intended to provide a pull-based delivery layer for Ansible. As su
 
 ### Out of Scope
 
-Helvilette will be used in a cloud native environment with other tools. The following specific functionality will therefore not be incorporated:
+Helvilette will be used in a cloud native environment or non cloud-native environments with other tools. Regardless, the following specific functionality will therefore not be incorporated:
 
 * Container orchestration (like Kubernetes or Docker Swarm)
 * General-purpose CI/CD pipelines (like GitHub Actions or GitLab CI)
 * Core configuration management capabilities (Ansible performs this function)
-
-Helvilette implements an OS service orchestration framework, through an API-driven control plane (Othela) and local node agents written in Go. It will not cover infrastructure provisioning (e.g., Terraform or Pulumi).
+* Infrastructure provisioning (e.g., should use Terraform or Pulumi)
 
 ## Communications
 
