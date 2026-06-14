@@ -1,60 +1,41 @@
-# Helvilette: The Walking Skeleton (PoC)
+# Helvilette - Declarative Continuous Delivery for Ansible Playbooks.
 
-Proof of Concept for **Helvilette** – An OS Service Orchestration Framework.
-This project demonstrates the "Outbound-only" agent architecture where a Go binary acts as a wrapper around Ansible, 
-pulling jobs from a central Control Plane (Othela).
+Helvilette is a declarative GitOps continuous delivery tool for Ansible that uses **your** Ansible Playbooks to manage desired state on a fleet of nodes. It is designed to be a lightweight and flexible alternative to deploying Ansible configurations via GitOps pull-based model at scale, or at edge.
 
-## 1. Prerequisites
+## Why Helvilette?
 
-- **Docker** and **Docker Compose** (for testing environment)
-- **WSL 2 (Ubuntu 24.04)** or any Linux environment (for manual testing)
-- **Go 1.25.6** (Verified with your installation at `/usr/local/go/bin/go`).
-- **Ansible** (`sudo apt install ansible`).
 
-## 2. Directory Structure
+## Getting Started
 
-```text
-helvilette/
-├── cmd/
-│   ├── othela/      # Control Plane (Server)
-│   └── agent/       # Node Agent (Client)
-├── pkg/             # Shared packages
-├── data/configs/    # K8s-style configuration files for nodes
-├── helvillette/     # Playbook configurations
-└── docker-compose.yaml
-```
+<!-- Include enough details to get started using, or at least building, the
+project here and link to other docs with more detail as needed.  Depending on
+the nature of the project and its current development status, this might
+include:
+* quick installation/build instructions
+* a few simple examples of use
+* basic prerequisites
+--> 
 
-## 3. How to Run 
+## Development Setup
 
-### Method A: Ephemeral Testing Environment (Recommended)
+### Method A: Manual installation on Linux Environment (WSL/Linux)
 
-You can spin up a complete testing cluster containing one Control Plane (Othela) and three Node Agents using Docker Compose. The environment is configured with Kubernetes-style CLI flags and YAML configurations.
-
-```bash
-# Build images and start the cluster
-make up
-
-# View real-time logs from all nodes
-make logs
-
-# Tear down the cluster and remove volumes
-make down
-```
-
-### Method B: Manual Sanity Test (WSL/Local)
-
-We will open two terminals in WSL to simulate the Server and the Client.
+We will open two terminals in WSL to simulate the Server and the Agent.
 
 #### Terminal 1: Othela (Control Plane)
-Start the server listening on port 8080.
+
+Start the server listening on port 8080:
+
 ```bash
 cd /mnt/e/Helvilette
 /usr/local/go/bin/go run ./cmd/othela --port=8080 --data-dir=helvillette/othela/data/playbooks --log-level=info
 ```
 
 #### Terminal 2: Helvilette Agent
+
 Start the agent. It will poll Othela every 5 seconds.
 You can use environment variables, CLI flags, or a config file (Kubelet style).
+
 ```bash
 cd /mnt/e/Helvilette
 # Using CLI flags
@@ -69,31 +50,74 @@ cd /mnt/e/Helvilette
 5. **Agent** captures the JSON output and sends it back to Othela.
 6. **Othela** prints the JSON report to the console.
 
-## 4. Architectural Sanity Check (The "Wet Dream" or Reality?)
+### Method B: Automated E2E Testing with Ginkgo and Testcontainers (Recommended)
 
-### Q1: Is `os/exec` with `ANSIBLE_STDOUT_CALLBACK=json` reliable?
-**Answer:** **Yes, but with caveats.**
-- **Pros:** It turns unstructured text logs into structured data without complex regex parsing. Modern Ansible versions support this natively and robustly. It effectively turns Ansible into an API.
-- **Cons/Risks:** 
-    - **Streaming encoding:** Ansible buffers output. If a playbook is huge, you won't see "real-time" logs until a task finishes. For long-running tasks, the feedback loop might feel slow.
-    - **Crash Handling:** If the Ansible python process SEGFAULTs or is killed by OOM, it won't produce JSON. The Go wrapper must handle `signal: killed` or non-JSON stderr gracefuly (implemented in `cmd/agent/main.go`).
+Helvilette uses a BDD testing framework ([Ginkgo](https://onsi.github.io/ginkgo/)) combined with [Testcontainers-Go](https://golang.testcontainers.org/) to run end-to-end (E2E) tests.  
 
-### Q2: Risks of Pull-Based Model (Poll vs. Push)?
-**Answer:** The Pull model is the correct choice for this scale.
-- **Availability Risk:** If Othela is down, Agents keep running their *current state* (which is good). However, they cannot report health or receive updates.
-- **Thundering Herd:** If 10,000 agents wake up and poll at the exact same millisecond, Othela will die. **Mitigation:** In production, you MUST implement "Jitter" (randomize the 5 s sleep to 5 s ± 2 s) to spread the load.
+When you run the E2E suite, it will:
+1. Automatically build a lightweight `git-daemon` container serving test playbooks over `git://`.
+2. Build the `othela` (Control Plane) and `agent` container images directly from the local Dockerfiles.
+3. Assert the state and outputs of the GitOps reconciliation loop programmatically.
+4. Clean up all containers and networks automatically.
 
-## 5. Configuration (Kubernetes Style)
+**Prerequisites:**
+You need `ginkgo` installed on your machine:
+```bash
+go install github.com/onsi/ginkgo/v2/ginkgo@latest
+```
 
-Helvilette adopts Kubernetes-style configuration patterns:
-- **Othela (Control Plane):** Acts like `kube-apiserver`, receiving configuration entirely through CLI flags (`--port`, `--data-dir`, `--log-level`).
-- **Agent (Node):** Acts like `kubelet`, using a combination of a YAML configuration file (`--config=agent.yaml`) and CLI overrides.
+**Running the tests:**
+```bash
+# Run the complete E2E test suite
+make e2e
+```
 
-### Agent Configuration Priority
-1. CLI Flags (Highest)
-2. YAML Configuration File (`--config`)
-3. Environment Variables (`OTHELA_URL`, `NODE_ID`, `POLL_INTERVAL`)
-4. Default Values (Lowest)
+## Contributing
+<!-- Template: https://github.com/cncf/project-template/blob/main/CONTRIBUTING.md -->
 
-## 6. Summary
-The architecture is **FEASIBLE**. The Ephemeral Cluster proves that Go can drive Ansible, manage Kubernetes-style configurations, and close the loop with the Control Plane inside isolated containers.
+Our project welcomes contributions from any member of our community. To get
+started contributing, please see our [Contributor Guide](TODO: Link to
+CONTRIBUTING.md).
+
+## Scope
+<!-- If this section is too long, you might consider moving it to a SCOPE.md -->
+<!-- More information about creating your scope with links to examples -->
+<!-- https://contribute.cncf.io/maintainers/governance/charter/ -->
+
+### In Scope
+
+Helvilette is intended to provide a pull-based delivery platform for Ansible. As such, the project will implement or has implemented:
+
+* Desired-state reconciliation loop at the OS/systemd level
+* Pull-based GitOps model without inbound SSH access
+* Lightweight agent architecture suitable for edge computing and IoT devices
+
+### Out of Scope
+
+Helvilette will be used in a cloud native environment or non cloud-native environments with other tools. Regardless, the following specific functionality will therefore not be incorporated:
+
+* Container orchestration (like Kubernetes or Docker Swarm)
+* General-purpose CI/CD pipelines (like GitHub Actions or GitLab CI)
+* Core configuration management capabilities (Ansible performs this function)
+* Infrastructure provisioning (e.g., should use Terraform or Pulumi)
+
+## Communications
+
+* User Mailing List:
+* Developer Mailing List:
+* Slack Channel:
+* Public Meeting Schedule and Links: 
+* Social Media:
+* Other Channel(s), If Any:
+
+## Resources
+
+[TODO: Add links to other helpful information (roadmap, docs, website, etc.)]
+
+## License
+
+This project is licensed under [Apache License Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
+## Code of Conduct
+
+We follow the CNCF Community Code of Conduct v1.3 stated at [https://github.com/cncf/foundation/blob/main/code-of-conduct.md](https://github.com/cncf/foundation/blob/main/code-of-conduct.md).

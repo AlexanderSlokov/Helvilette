@@ -14,7 +14,7 @@ metadata:
   description: "Install NGINX proxy fleet across edge nodes"
 
 spec:
-  repo: "http://git-server:3000/helvilette/nginx-collection.git"
+  repo: "git://git-server:9418/nginx-collection"
   branch: "main"
   playbook: "playbook.yml" # Chỉ định rõ file playbook gốc
   # Định nghĩa secret key của Ansible vault đi kèm với playbook

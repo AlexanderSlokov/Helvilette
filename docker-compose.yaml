@@ -100,7 +100,7 @@ services:
   git-seeder:
     build:
       context: .
-      dockerfile: Dockerfile.seeder
+      dockerfile: Dockerfile.gitea-seeder
     image: helvilette-git-seeder:local
     volumes:
       - ./tests/e2e/data/playbooks:/data/playbooks
