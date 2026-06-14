@@ -1,0 +1,93 @@
+# nginx-collection/helvilette.yml
+# File này được xem là global inventory cho toàn bộ playbook,
+apiVersion: apps/v1
+kind: Cluster
+metadata:
+  name: "my-company-edge-proxy-fleet"
+  # Mặc định, Helvilette luôn triển khai trong namespace "default".
+  # Nếu chỉ định tên namespace, Othela sẽ truyền thêm cấu hình để Agent tạo namespace đó
+  # tại tất cả các node trong cluster.
+  namespace: "default"
+  labels:
+    app: "nginx-collection"
+    version: "1.0.0"
+  description: "Install NGINX proxy fleet across edge nodes"
+
+spec:
+  repo: "git://git-server:9418/nginx-collection"
+  branch: "main"
+  playbook: "playbook.yml" # Chỉ định rõ file playbook gốc
+  # Định nghĩa secret key của Ansible vault đi kèm với playbook
+  vault:
+    nginx_collection_vault_secret:
+      # Othela có thể đọc secret từ:
+      # 1. exported env của host OS đang chạy Othela
+      type: exported
+      source: "H8E_VAULT_SECRET"
+      target: "group_vars/all/vault.yaml" # Vị trí file vault.yaml trong playbook (tính từ root content)
+      # 2. .env file nằm cùng với helvilette.yml. Cái này cần xem lại, không khả thi thì dẹp.
+      # type: .env
+      # source: "NGINX_COLLECTION_VAULT_SECRET"
+      # target: "group_vars/all/vault.yaml"
+      # 3. Secret mount từ K8s secret
+      # type: k8s
+      # source: "my-secret"
+      # target: "group_vars/all/vault.yaml"
+      # 4. HashiCorp Vault
+    nginx_vault_pass:
+      type: hashicorp_vault
+      source: "https://vault.my-company.com/v1/secret/data/nginx-collection"
+      target: "group_vars/all/vault.yaml"
+      # Còn một mớ requirements nữa mới xác thực được với Vault, nhưng đại khái là có thể đọc secret từ Vault
+      # 5. Docker secret:
+      # type: docker
+      # source: "/run/secrets/my-secret"
+      # target: "group_vars/all/vault.yaml"
+
+  # Thay vì hardcode từng node, ta định nghĩa các "Node Group" (như khái niệm Deployment/DaemonSet)
+  nodeGroups:
+    - name: "standard-proxies"
+      # Agent nào khai báo có label này sẽ nhận được cấu hình bên dưới
+      nodeSelector:
+        role: "edge-proxy"
+      ansible:
+        # Sẽ được inject vào /dev/shm/nginx_collection_vault_secret.txt
+        vault-password-file: nginx_collection_vault_secret
+        # Các giá trị trong extra_vars sẽ được apiserver Othela truyền xuống cho agent 
+        # để override lại vars trong playbook. Lưu tại /var/lib/helvilette/agent/extra_vars/nginx-collection.json
+        extra_vars:
+          nginx_http_port: "80"
+          nginx_https_port: "443"
+      # Quan trọng: cấu hình probes để agent có thể theo dõi trạng thái của dịch vụ
+      probes:
+        # Tên dịch vụ systemd mà Agent cần theo dõi
+        nginx.service: 
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+        mariadb.service:
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost"]
+            periodSeconds: 15
+            failureThreshold: 2
+
+    - name: "high-performance-proxies"
+      nodeSelector:
+        role: "edge-proxy"
+      ansible:
+        vault-password-file: nginx_vault_pass
+        extra_vars:
+          nginx_https_port: "443"
+          nginx_worker_processes: "auto"
+          nginx_worker_connections: "4096"
+          # Truyền ý định về tài nguyên vào biến. 
+          # Ansible Playbook sẽ dùng biến này để render file systemd!
+          systemd_memory_limit: "2G"
+          systemd_cpu_quota: "100%"
+          # Bật tính năng seccomp, logic cấu hình cụ thể đã nằm sẵn trong Ansible Roles
+          enable_seccomp_runtime_default: true

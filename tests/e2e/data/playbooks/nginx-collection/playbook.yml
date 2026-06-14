@@ -1,0 +1,8 @@
+---
+- name: Install NGINX from Collection
+  hosts: localhost
+  connection: local
+  become: yes
+  gather_facts: yes
+  roles:
+    - install_nginx

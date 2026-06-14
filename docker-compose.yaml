@@ -1,0 +1,117 @@
+services:
+  othela:
+    build:
+      context: .
+      dockerfile: Dockerfile.othela
+    image: helvilette-othela:local
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./tests/e2e/data:/app/helvillette/othela/data
+    networks:
+      - helvilette-net
+    command: ["./othela", "--port=8080", "--data-dir=helvillette/othela/data/playbooks", "--log-level=info"]
+    restart: unless-stopped
+    depends_on:
+      git-server:
+        condition: service_started
+
+  node-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    image: helvilette-agent:local
+    command: ["./agent", "--config=/var/lib/helvilette/agent.yaml"]
+    volumes:
+      - ./data/agent-1:/tmp/helvilette
+      - ./data/configs/agent-01.yaml:/var/lib/helvilette/agent.yaml
+    networks:
+      - helvilette-net
+    depends_on:
+      othela:
+        condition: service_started
+      git-seeder:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  node-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    image: helvilette-agent:local
+    command: ["./agent", "--config=/var/lib/helvilette/agent.yaml"]
+    volumes:
+      - ./data/agent-2:/tmp/helvilette
+      - ./data/configs/agent-02.yaml:/var/lib/helvilette/agent.yaml
+    networks:
+      - helvilette-net
+    depends_on:
+      othela:
+        condition: service_started
+      git-seeder:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  node-3:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    image: helvilette-agent:local
+    command: ["./agent", "--config=/var/lib/helvilette/agent.yaml"]
+    volumes:
+      - ./data/agent-3:/tmp/helvilette
+      - ./data/configs/agent-03.yaml:/var/lib/helvilette/agent.yaml
+    networks:
+      - helvilette-net
+    depends_on:
+      othela:
+        condition: service_started
+      git-seeder:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Thêm cacsi gì đó của docker compose để check readiness của repo
+  # Và ép Othela api server + các node phải đợi git-server ready (có repo sẵn sàng)
+  # thì mới start
+  git-server:
+    image: gitea/gitea:1.21.11
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=sqlite3
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__server__DOMAIN=git-server
+      - GITEA__server__SSH_DOMAIN=git-server
+      - GITEA__server__ROOT_URL=http://git-server:3000/
+    volumes:
+      # - ./data/gitea:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"
+      - "222:22"
+    networks:
+      - helvilette-net
+    restart: unless-stopped
+
+  # Wait for Gitea to be fully ready, create user, create repo, and push
+  # TODO: Tạo dockerfile cho cái này và bake nó trước khi build
+  # Khi chạy test là nó sẽ sẵn sàng seed luôn
+  git-seeder:
+    build:
+      context: .
+      dockerfile: Dockerfile.gitea-seeder
+    image: helvilette-git-seeder:local
+    volumes:
+      - ./tests/e2e/data/playbooks:/data/playbooks
+      - ./tests/e2e/git-seed.sh:/seed/git-seed.sh
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - helvilette-net
+    depends_on:
+      git-server:
+        condition: service_started
+
+networks:
+  helvilette-net:
+    driver: bridge
