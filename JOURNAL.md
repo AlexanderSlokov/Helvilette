@@ -114,7 +114,7 @@ Sau khi chạy thử cụm Docker Compose, một lỗi chí mạng đã xuất h
 
 Lúc `10:10:28 UTC`, Agent nhận job từ Othela, chạy Ansible playbook, và cài đặt NGINX thành công lên WSL2 Ubuntu.
 
-```
+```bash
 2026-02-01T10:10:11Z INF processing new job has_path=true job_id=job-e3edf2135582d6a3
 2026-02-01T10:10:28Z INF playbook execution succeeded
 2026-02-01T10:10:28Z INF sending report to Othela status=Success
@@ -148,6 +148,7 @@ Lúc `10:10:28 UTC`, Agent nhận job từ Othela, chạy Ansible playbook, và 
 - `cmd.Dir = filepath.Dir(job.PlaybookPath)` - Key change cho role resolution
 
 #### 5. Sample nginx-collection
+
 ```
 nginx-collection/
 ├── helvilette.yml      # Collection metadata

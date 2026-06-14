@@ -1,8 +1,9 @@
-# Helvilette: An OS Service Orchestration Framework.
+# Helvilette - Declarative Continuous Delivery for Ansible Playbooks.
 
-Helvilette is a service orchestration framework that uses Ansible Playbooks to manage services on a fleet of nodes. It is designed to be a lightweight and flexible alternative to traditional configuration management tools.
+Helvilette is a declarative GitOps continuous delivery tool for Ansible that uses **your** Ansible Playbooks to manage desired state on a fleet of nodes. It is designed to be a lightweight and flexible alternative to deploying Ansible configurations via GitOps pull-based model at scale, or at edge.
 
-Helvilette is a project aiming to join the [Cloud Native Computing Foundation (CNCF)](https://cncf.io).
+## Why Helvilette?
+
 
 ## Getting Started
 
