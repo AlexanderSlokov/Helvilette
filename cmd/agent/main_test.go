@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewAgent(t *testing.T) {
-	config := AgentConfig{
+	config := AgentConfiguration{
 		OthelaURL:    "http://test:8080/api/v1",
 		NodeID:       "test-agent",
 		PollInterval: 0,
@@ -67,7 +67,7 @@ func TestAgent_Poll_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := AgentConfig{
+	config := AgentConfiguration{
 		OthelaURL: server.URL + "/api/v1",
 		NodeID:    "test-agent",
 	}
@@ -93,7 +93,7 @@ func TestAgent_Poll_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := AgentConfig{
+	config := AgentConfiguration{
 		OthelaURL: server.URL + "/api/v1",
 		NodeID:    "test-agent",
 	}
@@ -112,7 +112,7 @@ func TestAgent_Poll_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := AgentConfig{
+	config := AgentConfiguration{
 		OthelaURL: server.URL + "/api/v1",
 		NodeID:    "test-agent",
 	}
@@ -125,7 +125,7 @@ func TestAgent_Poll_InvalidJSON(t *testing.T) {
 }
 
 func TestAgent_Poll_ConnectionError(t *testing.T) {
-	config := AgentConfig{
+	config := AgentConfiguration{
 		OthelaURL: "http://localhost:99999/api/v1", // Invalid port
 		NodeID:    "test-agent",
 	}
@@ -153,7 +153,7 @@ func TestAgent_SendReport_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := AgentConfig{
+	config := AgentConfiguration{
 		OthelaURL: server.URL + "/api/v1",
 		NodeID:    "test-agent",
 	}
@@ -186,7 +186,7 @@ func TestAgent_SendReport_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := AgentConfig{
+	config := AgentConfiguration{
 		OthelaURL: server.URL + "/api/v1",
 		NodeID:    "test-agent",
 	}
@@ -216,7 +216,7 @@ func TestAgent_ExecutePlaybook_WritesFile(t *testing.T) {
 	// but we can verify the file was written
 	agent.ExecutePlaybook(job)
 
-	tmpFile := filepath.Join("/tmp", "helvilette_job_"+job.JobID+".yml")
+	tmpFile := filepath.Join(agent.config.WorkspaceDir, "helvilette_job_"+job.JobID+".yml")
 	data, err := os.ReadFile(tmpFile)
 	if err != nil {
 		t.Fatalf("failed to read playbook file: %v", err)
@@ -238,7 +238,7 @@ func TestAgent_ProcessJob_SkipsSameJob(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := AgentConfig{
+	config := AgentConfiguration{
 		OthelaURL: server.URL + "/api/v1",
 		NodeID:    "test-agent",
 	}
