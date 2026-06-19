@@ -186,4 +186,34 @@ var _ = Describe("GitOps Workflow", func() {
 			return string(logBytes)
 		}, 3*time.Minute, 5*time.Second).Should(ContainSubstring("playbook execution"))
 	})
+
+	It("Should expose health and readiness endpoints on Othela", func() {
+		hostIP, err := othelaContainer.Host(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		mappedPort, err := othelaContainer.MappedPort(ctx, "8080/tcp")
+		Expect(err).NotTo(HaveOccurred())
+
+		baseURL := fmt.Sprintf("http://%s:%s", hostIP, mappedPort.Port())
+
+		// Test /healthz
+		resp, err := http.Get(baseURL + "/healthz")
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		bodyBytes, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(bodyBytes)).To(ContainSubstring(`"status":"ok"`))
+
+		// Test /readyz
+		resp2, err := http.Get(baseURL + "/readyz")
+		Expect(err).NotTo(HaveOccurred())
+		defer resp2.Body.Close()
+		Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+
+		bodyBytes2, err := io.ReadAll(resp2.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(bodyBytes2)).To(ContainSubstring(`"status":"ok"`))
+	})
 })

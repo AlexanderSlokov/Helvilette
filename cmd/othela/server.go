@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -26,6 +27,7 @@ type Server struct {
 	currentJob Job
 	reports    []Report
 	mu         sync.RWMutex
+	ready      atomic.Bool // readiness probe state
 }
 
 // NewServer creates a new Othela server with default configuration
@@ -34,6 +36,7 @@ func NewServer() *Server {
 		router:  mux.NewRouter(),
 		reports: make([]Report, 0),
 	}
+	s.ready.Store(true)
 
 	// Initialize mock job
 	s.currentJob = Job{
@@ -61,6 +64,7 @@ func NewServerWithLoader(loader *playbook.Loader) *Server {
 		loader:  loader,
 		reports: make([]Report, 0),
 	}
+	s.ready.Store(true)
 
 	// Try to load first available playbook
 	playbooks, err := loader.Scan()
@@ -110,6 +114,7 @@ func NewServerWithJob(job Job) *Server {
 		currentJob: job,
 		reports:    make([]Report, 0),
 	}
+	s.ready.Store(true)
 	s.setupRoutes()
 	return s
 }
@@ -118,6 +123,10 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/api/v1/sync/{node_id}", s.handleSync).Methods("GET")
 	s.router.HandleFunc("/api/v1/report", s.handleReport).Methods("POST")
 	s.router.HandleFunc("/api/v1/playbooks", s.handlePlaybooks).Methods("GET")
+
+	// Health & readiness probes (K8s-style)
+	s.router.HandleFunc("/healthz", s.handleHealthz).Methods("GET")
+	s.router.HandleFunc("/readyz", s.handleReadyz).Methods("GET")
 }
 
 // Router returns the HTTP router for the server
@@ -187,6 +196,50 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ListenAndServe(addr string) error {
 	log.Printf("Othela Control Plane is listening on %s...", addr)
 	return http.ListenAndServe(addr, s.router)
+}
+
+// NewHTTPServer creates a configured *http.Server with production-grade timeouts.
+// Use this with graceful shutdown instead of ListenAndServe.
+func (s *Server) NewHTTPServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:         addr,
+		Handler:      s.router,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+}
+
+// SetReady sets the readiness state of the server.
+// Set to false during shutdown to stop accepting new traffic.
+func (s *Server) SetReady(ready bool) {
+	s.ready.Store(ready)
+}
+
+// IsReady returns whether the server is ready to serve traffic.
+func (s *Server) IsReady() bool {
+	return s.ready.Load()
+}
+
+// handleHealthz responds with liveness status.
+// This endpoint indicates the process is alive and can serve requests.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleReadyz responds with readiness status.
+// Returns 503 when the server is shutting down or not yet initialized.
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !s.ready.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "not_ready"})
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // handlePlaybooks lists all available playbooks

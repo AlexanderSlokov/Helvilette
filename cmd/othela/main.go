@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -25,21 +29,51 @@ var rootCmd = &cobra.Command{
 
 		addr := fmt.Sprintf(":%d", port)
 
+		var server *Server
+
 		loader, err := playbook.NewLoader(dataDir)
 		if err != nil {
 			log.Printf("[WARN] Could not initialize playbook loader at %s: %v", dataDir, err)
 			log.Printf("[WARN] Falling back to default server (no playbook loading)")
-			server := NewServer()
-			if err := server.ListenAndServe(addr); err != nil {
-				log.Fatalf("Server failed: %v", err)
-			}
-			return
+			server = NewServer()
+		} else {
+			server = NewServerWithLoader(loader)
 		}
 
-		server := NewServerWithLoader(loader)
-		if err := server.ListenAndServe(addr); err != nil {
-			log.Fatalf("Server failed: %v", err)
+		httpServer := server.NewHTTPServer(addr)
+
+		// Graceful shutdown: listen for SIGINT / SIGTERM
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+		// Start serving in a goroutine
+		errChan := make(chan error, 1)
+		go func() {
+			log.Printf("Othela Control Plane is listening on %s...", addr)
+			errChan <- httpServer.ListenAndServe()
+		}()
+
+		// Block until signal or server error
+		select {
+		case sig := <-sigChan:
+			log.Printf("[SHUTDOWN] Received signal: %v", sig)
+		case err := <-errChan:
+			log.Fatalf("Server failed unexpectedly: %v", err)
 		}
+
+		// Mark server as not ready so readiness probes fail during drain
+		server.SetReady(false)
+		log.Printf("[SHUTDOWN] Marked server as not-ready, draining connections...")
+
+		// Give in-flight requests time to complete
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		if err := httpServer.Shutdown(ctx); err != nil {
+			log.Fatalf("[SHUTDOWN] Graceful shutdown failed: %v", err)
+		}
+
+		log.Printf("[SHUTDOWN] Othela stopped gracefully.")
 	},
 }
 

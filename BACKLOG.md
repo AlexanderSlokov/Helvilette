@@ -67,8 +67,8 @@ Hiện tại Othela lưu trên memory. Cần cơ sở dữ liệu để ghi nh�
 
 ### 3.6. Production Readiness
 - [ ] Node registration API (để Agent đăng ký node info, capabilities với Othela).
-- [ ] Health check endpoints (`/healthz`, `/readyz`).
-- [ ] Graceful shutdown handling cho Othela và Agent.
+- [x] Health check endpoints (`/healthz`, `/readyz`).
+- [x] Graceful shutdown handling cho Othela và Agent.
 - [ ] Systemd service files (`othela.service`, `helvilette-agent.service`).
 
 ---
