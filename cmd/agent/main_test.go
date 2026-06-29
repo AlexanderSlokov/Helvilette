@@ -262,3 +262,33 @@ func TestAgent_ProcessJob_SkipsSameJob(t *testing.T) {
 		t.Errorf("expected 0 HTTP calls for same job, got %d", callCount)
 	}
 }
+
+func TestParseLabels(t *testing.T) {
+	labels := parseLabels("role=web, env=prod, region=us-east-1")
+	if len(labels) != 3 {
+		t.Errorf("expected 3 labels, got %d", len(labels))
+	}
+	if labels["role"] != "web" {
+		t.Errorf("expected role=web, got %s", labels["role"])
+	}
+	if labels["env"] != "prod" {
+		t.Errorf("expected env=prod, got %s", labels["env"])
+	}
+}
+
+func TestLoadConfig_CLI_Overrides(t *testing.T) {
+	config, err := LoadConfig("", "http://cli:8080", "cli-node", "10s", "/tmp/cli", "role=db")
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	
+	if config.OthelaURL != "http://cli:8080/api/v1" {
+		t.Errorf("expected http://cli:8080/api/v1, got %s", config.OthelaURL)
+	}
+	if config.NodeID != "cli-node" {
+		t.Errorf("expected cli-node, got %s", config.NodeID)
+	}
+	if config.Labels["role"] != "db" {
+		t.Errorf("expected role=db, got %s", config.Labels["role"])
+	}
+}

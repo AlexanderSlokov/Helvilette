@@ -11,7 +11,8 @@ type Job struct {
 	RepoURL         string `json:"repo_url,omitempty"` // git@github.com:org/playbooks.git
 	Version         string `json:"version,omitempty"`  // commit SHA, tag, or branch
 	PlaybookContent string `json:"playbook_content,omitempty"`
-	PlaybookPath    string `json:"playbook_path,omitempty"` // Full path or relative path to run from
+	PlaybookPath    string            `json:"playbook_path,omitempty"` // Full path or relative path to run from
+	ExtraVars       map[string]string `json:"extra_vars,omitempty"`    // Variables to pass to Ansible
 }
 
 // Report represents the execution report from an Agent.

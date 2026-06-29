@@ -47,8 +47,21 @@ Chuyển đổi từ việc Othela gửi cục `PlaybookContent` sang gửi `Ref
 
 ### 3.2. Node Targeting & Label-Based Routing
 Hiện tại Job đang broadcast. Cần gán việc có đích.
-- [ ] **Agent side:** Agent gửi thông tin Label/Tag của nó khi gọi API register/sync với Othela.
-- [ ] **Othela side:** Định nghĩa `nodeSelector` trong cấu hình (giống Kubernetes). Update dispatcher logic để match `nodeSelector` với Agent's labels trước khi trả về Job.
+
+**Design Decisions (June 2026):**
+- **Registration-first:** Agent phải register với Othela TRƯỚC khi sync. Thiết kế interface cho SQLite persistence từ đầu, dù implementation hiện tại là in-memory. Giống kubelet register → rồi mới nhận Pod specs.
+- **Fail loudly on mismatch:** Nếu agent có labels không khớp bất kỳ nodeGroup nào, Othela phải log ERROR rõ ràng và trả response cho agent biết. Không im lặng bỏ qua. Infra admin phải biết mình cấu hình sai.
+- **Deferred:** Vault integration và Probes parsing trong `helvilette.yml` KHÔNG nằm trong scope 3.2 — xem mục 4.3 và 4.5.
+
+**Subtasks:**
+- [ ] **`pkg/manifest` package (NEW):** Parse `helvilette.yml` → Go structs. Chỉ parse `apiVersion`, `kind`, `metadata`, `spec.repo/branch/playbook`, `nodeGroups[].nodeSelector`, `nodeGroups[].ansible.extra_vars`.
+- [ ] **Agent labels config:** Thêm `Labels map[string]string` vào `AgentConfiguration`. Support CLI (`--labels`), YAML config, ENV (`AGENT_LABELS`).
+- [ ] **Node Registration API:** `POST /api/v1/nodes/register` — Agent gửi nodeID + labels. Othela lưu vào in-memory registry (interface sẵn sàng cho SQLite swap).
+- [ ] **Othela dispatcher update:** `handleSync()` đọc labels từ registry, match với `nodeSelector` từ manifest, trả về đúng job + extra_vars cho đúng node. Nếu không match → fail loudly.
+- [ ] **Agent `ExtraVars` execution:** Khi job có `extra_vars`, agent viết ra file JSON và append `-e @file` vào `ansible-playbook` command.
+- [ ] **Job struct update:** Thêm `ExtraVars map[string]string` vào `pkg/types.Job`.
+- [ ] **Unit tests:** `pkg/manifest` parser + nodeSelector matching.
+- [ ] **E2E update:** Agent với labels `role=edge-proxy` nhận job, agent với labels khác không nhận.
 
 ### 3.3. Persistence Layer cho Othela (SQLite)
 Hiện tại Othela lưu trên memory. Cần cơ sở dữ liệu để ghi nhận lịch sử.
@@ -66,7 +79,7 @@ Hiện tại Othela lưu trên memory. Cần cơ sở dữ liệu để ghi nh�
 - [ ] So sánh state hiện tại với desired state. Nếu có drift, Agent báo cáo `DriftDetected` event về Othela.
 
 ### 3.6. Production Readiness
-- [ ] Node registration API (để Agent đăng ký node info, capabilities với Othela).
+- [x] ~~Node registration API~~ → **Chuyển sang 3.2** (registration-first pattern).
 - [x] Health check endpoints (`/healthz`, `/readyz`).
 - [x] Graceful shutdown handling cho Othela và Agent.
 - [ ] Systemd service files (`othela.service`, `helvilette-agent.service`).
@@ -86,10 +99,19 @@ Sau khi hệ thống lõi hoạt động hoàn chỉnh, tiến hành các tính 
 - [ ] Khi nhận trigger, Othela lập tức notify/invalidate cache các Agents liên quan mà không phải đợi hết Poll Interval.
 
 ### 4.3. Health Probes (Systemd Liveness/Readiness)
+*(Lưu ý: Phần `probes` trong `helvilette.yml` đã được design nhưng bị **deferred từ 3.2**. Khi implement phase này, `pkg/manifest` parser đã có struct sẵn, chỉ cần thêm logic.)*
+- [ ] Mở rộng `pkg/manifest/types.go` để parse `probes` section từ `helvilette.yml`.
 - [ ] Support `livenessProbe` và `readinessProbe` cho systemd services (K8s style).
 - [ ] Agent định kỳ kiểm tra sức khỏe service (HTTP get, TCP socket, Exec) độc lập với vòng lặp của Ansible.
 
-### 4.4. Scheduled Playbook Runs
+### 4.4. Vault / Secret Integration
+*(Lưu ý: Phần `vault` trong `helvilette.yml` đã được design nhưng bị **deferred từ 3.2**. Khi implement phase này, `pkg/manifest` parser đã có struct sẵn, chỉ cần thêm logic.)*
+- [ ] Mở rộng `pkg/manifest/types.go` để parse `vault` section từ `helvilette.yml`.
+- [ ] Support `type: exported` (đọc secret từ ENV của Othela host).
+- [ ] Support `type: hashicorp_vault` (đọc secret từ HashiCorp Vault API).
+- [ ] Agent nhận vault password file path từ Job, inject vào `ansible-playbook --vault-password-file`.
+
+### 4.5. Scheduled Playbook Runs
 - [ ] Hỗ trợ Cron-like schedule để tự động trigger job từ phía Othela thay vì chỉ chạy 1 lần.
 
 ---

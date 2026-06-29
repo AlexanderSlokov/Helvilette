@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"helvilette/pkg/manifest"
 	"helvilette/pkg/playbook"
 	"helvilette/pkg/types"
 )
@@ -20,21 +21,64 @@ import (
 type Job = types.Job
 type Report = types.Report
 
+// NodeRegistry interface — designed for SQLite swap later
+type NodeRegistry interface {
+	Register(nodeID string, labels map[string]string) error
+	GetLabels(nodeID string) (map[string]string, bool)
+	IsRegistered(nodeID string) bool
+}
+
+// InMemoryNodeRegistry implementation
+type InMemoryNodeRegistry struct {
+	mu    sync.RWMutex
+	nodes map[string]map[string]string // nodeID → labels
+}
+
+func NewInMemoryNodeRegistry() *InMemoryNodeRegistry {
+	return &InMemoryNodeRegistry{
+		nodes: make(map[string]map[string]string),
+	}
+}
+
+func (r *InMemoryNodeRegistry) Register(nodeID string, labels map[string]string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.nodes[nodeID] = labels
+	return nil
+}
+
+func (r *InMemoryNodeRegistry) GetLabels(nodeID string) (map[string]string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	labels, ok := r.nodes[nodeID]
+	return labels, ok
+}
+
+func (r *InMemoryNodeRegistry) IsRegistered(nodeID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.nodes[nodeID]
+	return ok
+}
+
 // Server represents the Othela control plane server
 type Server struct {
-	router     *mux.Router
-	loader     *playbook.Loader
-	currentJob Job
-	reports    []Report
-	mu         sync.RWMutex
-	ready      atomic.Bool // readiness probe state
+	router       *mux.Router
+	loader       *playbook.Loader
+	currentJob   Job // fallback / testing
+	playbooks    []playbook.Playbook
+	nodeRegistry NodeRegistry
+	reports      []Report
+	mu           sync.RWMutex
+	ready        atomic.Bool // readiness probe state
 }
 
 // NewServer creates a new Othela server with default configuration
 func NewServer() *Server {
 	s := &Server{
-		router:  mux.NewRouter(),
-		reports: make([]Report, 0),
+		router:       mux.NewRouter(),
+		reports:      make([]Report, 0),
+		nodeRegistry: NewInMemoryNodeRegistry(),
 	}
 	s.ready.Store(true)
 
@@ -60,14 +104,20 @@ func NewServer() *Server {
 // NewServerWithLoader creates a new Othela server with a playbook loader
 func NewServerWithLoader(loader *playbook.Loader) *Server {
 	s := &Server{
-		router:  mux.NewRouter(),
-		loader:  loader,
-		reports: make([]Report, 0),
+		router:       mux.NewRouter(),
+		loader:       loader,
+		reports:      make([]Report, 0),
+		nodeRegistry: NewInMemoryNodeRegistry(),
 	}
 	s.ready.Store(true)
 
-	// Try to load first available playbook
+	// Scan playbooks and keep in memory for manifest matching
 	playbooks, err := loader.Scan()
+	if err == nil {
+		s.playbooks = playbooks
+	}
+
+	// Try to load first available playbook as fallback
 	if err == nil && len(playbooks) > 0 {
 		content, err := loader.Load(playbooks[0].ID)
 		if err == nil {
@@ -110,9 +160,10 @@ func NewServerWithLoader(loader *playbook.Loader) *Server {
 // NewServerWithJob creates a server with a specific job (for testing)
 func NewServerWithJob(job Job) *Server {
 	s := &Server{
-		router:     mux.NewRouter(),
-		currentJob: job,
-		reports:    make([]Report, 0),
+		router:       mux.NewRouter(),
+		currentJob:   job,
+		reports:      make([]Report, 0),
+		nodeRegistry: NewInMemoryNodeRegistry(),
 	}
 	s.ready.Store(true)
 	s.setupRoutes()
@@ -120,6 +171,7 @@ func NewServerWithJob(job Job) *Server {
 }
 
 func (s *Server) setupRoutes() {
+	s.router.HandleFunc("/api/v1/nodes/register", s.handleRegisterNode).Methods("POST")
 	s.router.HandleFunc("/api/v1/sync/{node_id}", s.handleSync).Methods("GET")
 	s.router.HandleFunc("/api/v1/report", s.handleReport).Methods("POST")
 	s.router.HandleFunc("/api/v1/playbooks", s.handlePlaybooks).Methods("GET")
@@ -155,6 +207,27 @@ func (s *Server) GetReports() []Report {
 	return append([]Report{}, s.reports...)
 }
 
+type NodeRegistration struct {
+	NodeID string            `json:"node_id"`
+	Labels map[string]string `json:"labels"`
+}
+
+func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
+	var req NodeRegistration
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.nodeRegistry.Register(req.NodeID, req.Labels)
+	
+	log.Printf("[REGISTER] Node %s registered with labels %v", req.NodeID, req.Labels)
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(req)
+}
+
 // handleSync handles the sync endpoint - Agent polls for work
 func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -162,12 +235,72 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[SYNC] Node %s is asking for work...", nodeID)
 
+	if !s.nodeRegistry.IsRegistered(nodeID) {
+		http.Error(w, "node not registered, call POST /api/v1/nodes/register first", http.StatusForbidden)
+		return
+	}
+
+	labels, _ := s.nodeRegistry.GetLabels(nodeID)
+
 	s.mu.RLock()
-	job := s.currentJob
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
+
+	var matchedJob *Job
+
+	// 1. Try to match from playbooks (helvilette.yml)
+	for _, pb := range s.playbooks {
+		if pb.Manifest == nil {
+			continue
+		}
+		
+		matches := manifest.MatchNodeGroups(pb.Manifest, labels)
+		if len(matches) > 0 {
+			group := matches[0] // take the first match
+			
+			repoURL := pb.Manifest.Spec.Repo
+			if repoURL == "" {
+				repoURL = os.Getenv("HELV_TEST_REPO_URL")
+				if repoURL == "" {
+					repoURL = "http://git-server:3000/helvilette/nginx-collection.git"
+				}
+			}
+
+			matchedJob = &Job{
+				JobID:        "job-" + pb.ID + "-" + group.Name,
+				RepoURL:      repoURL,
+				Version:      pb.Manifest.Spec.Branch,
+				PlaybookPath: pb.Manifest.Spec.Playbook,
+				ExtraVars:    group.Ansible.ExtraVars,
+			}
+			break
+		}
+	}
+
+	// 2. Fallback to currentJob if no manifests match but we have a mock/fallback job
+	if matchedJob == nil && s.currentJob.JobID != "" {
+		// Only fallback if there are no manifests at all (to preserve fail-loud when manifests exist)
+		hasManifests := false
+		for _, pb := range s.playbooks {
+			if pb.Manifest != nil {
+				hasManifests = true
+				break
+			}
+		}
+		
+		if !hasManifests {
+			matchedJob = &s.currentJob
+		}
+	}
+
+	if matchedJob == nil {
+		// Fail loudly
+		log.Printf("[ERROR] Node %s has labels %v, but no nodeSelectors matched", nodeID, labels)
+		http.Error(w, fmt.Sprintf("no matching nodeGroups for labels %v", labels), http.StatusConflict)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(job)
+	json.NewEncoder(w).Encode(matchedJob)
 }
 
 // handleReport handles the report endpoint - Agent sends back results
@@ -265,4 +398,3 @@ func (s *Server) handlePlaybooks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) GetLoader() *playbook.Loader {
 	return s.loader
 }
-

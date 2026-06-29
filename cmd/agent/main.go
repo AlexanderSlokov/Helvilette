@@ -11,25 +11,27 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"helvilette/pkg/git"
 	"helvilette/pkg/log"
 	"helvilette/pkg/systemd"
 	"helvilette/pkg/types"
-	"helvilette/pkg/git"
 )
 
 // AgentConfiguration holds the full configuration for the agent,
 // modeled after Kubernetes KubeletConfiguration
 type AgentConfiguration struct {
-	OthelaURL    string        `yaml:"othelaURL"`
-	NodeID       string        `yaml:"nodeID"`
-	PollInterval time.Duration `yaml:"pollInterval"`
-	WorkspaceDir string        `yaml:"workspaceDir"`
+	OthelaURL    string            `yaml:"othelaURL"`
+	NodeID       string            `yaml:"nodeID"`
+	PollInterval time.Duration     `yaml:"pollInterval"`
+	WorkspaceDir string            `yaml:"workspaceDir"`
+	Labels       map[string]string `yaml:"labels"`
 }
 
 // DefaultConfig returns the default agent configuration
@@ -39,11 +41,23 @@ func DefaultConfig() AgentConfiguration {
 		NodeID:       "agent-01",
 		PollInterval: 5 * time.Second,
 		WorkspaceDir: "/tmp/helvilette",
+		Labels:       make(map[string]string),
 	}
 }
 
+func parseLabels(s string) map[string]string {
+	labels := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) == 2 {
+			labels[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+		}
+	}
+	return labels
+}
+
 // LoadConfig merges default, yaml file, environment, and CLI configurations
-func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspaceDir string) (AgentConfiguration, error) {
+func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspaceDir, cliLabels string) (AgentConfiguration, error) {
 	config := DefaultConfig()
 
 	// 1. Load from YAML file if provided
@@ -54,10 +68,11 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 		}
 
 		var raw struct {
-			OthelaURL    string `yaml:"othelaURL"`
-			NodeID       string `yaml:"nodeID"`
-			PollInterval string `yaml:"pollInterval"`
-			WorkspaceDir string `yaml:"workspaceDir"`
+			OthelaURL    string            `yaml:"othelaURL"`
+			NodeID       string            `yaml:"nodeID"`
+			PollInterval string            `yaml:"pollInterval"`
+			WorkspaceDir string            `yaml:"workspaceDir"`
+			Labels       map[string]string `yaml:"labels"`
 		}
 
 		if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -80,6 +95,9 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 			}
 			config.PollInterval = d
 		}
+		if len(raw.Labels) > 0 {
+			config.Labels = raw.Labels
+		}
 	}
 
 	// 2. Override with Environment Variables
@@ -97,6 +115,12 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 	if dir := os.Getenv("WORKSPACE_DIR"); dir != "" {
 		config.WorkspaceDir = dir
 	}
+	if labelsStr := os.Getenv("AGENT_LABELS"); labelsStr != "" {
+		envLabels := parseLabels(labelsStr)
+		for k, v := range envLabels {
+			config.Labels[k] = v
+		}
+	}
 
 	// 3. Override with CLI Flags (highest priority)
 	if cliOthelaURL != "" {
@@ -112,6 +136,12 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 	}
 	if cliWorkspaceDir != "" {
 		config.WorkspaceDir = cliWorkspaceDir
+	}
+	if cliLabels != "" {
+		cliParsedLabels := parseLabels(cliLabels)
+		for k, v := range cliParsedLabels {
+			config.Labels[k] = v
+		}
 	}
 
 	// Format URL
@@ -135,7 +165,7 @@ type Agent struct {
 	httpClient *http.Client
 }
 
-// Job Add Type aliases for backward compatibility within this package
+// Type aliases for backward compatibility within this package
 type Job = types.Job
 type Report = types.Report
 
@@ -147,6 +177,51 @@ func NewAgent(config AgentConfiguration) *Agent {
 	}
 }
 
+// RegisterNode registers this agent with Othela
+func (a *Agent) RegisterNode(ctx context.Context) error {
+	logger := log.WithComponent("agent").With().Str("node_id", a.config.NodeID).Logger()
+	url := fmt.Sprintf("%s/nodes/register", a.config.OthelaURL)
+	
+	reqBody := struct {
+		NodeID string            `json:"node_id"`
+		Labels map[string]string `json:"labels"`
+	}{
+		NodeID: a.config.NodeID,
+		Labels: a.config.Labels,
+	}
+	
+	data, _ := json.Marshal(reqBody)
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			resp, err := a.httpClient.Post(url, "application/json", bytes.NewReader(data))
+			if err == nil && resp.StatusCode == http.StatusOK {
+				resp.Body.Close()
+				logger.Info().Msg("Successfully registered with Othela")
+				return nil
+			}
+			
+			status := "unknown"
+			if resp != nil {
+				status = resp.Status
+				resp.Body.Close()
+			}
+			
+			logger.Warn().Err(err).Str("status", status).Msg("Failed to register with Othela, retrying in 5s...")
+			
+			// Wait before retrying, but allow context cancellation
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+			}
+		}
+	}
+}
+
 // Poll fetches a job from Othela and returns it
 func (a *Agent) Poll() (*Job, error) {
 	url := fmt.Sprintf("%s/sync/%s", a.config.OthelaURL, a.config.NodeID)
@@ -154,15 +229,18 @@ func (a *Agent) Poll() (*Job, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Othela: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
+	defer resp.Body.Close()
 
-		}
-	}(resp.Body)
-
+	if resp.StatusCode == http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("label mismatch (409): %s", string(body))
+	}
+	if resp.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Othela returned status: %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Othela returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var job Job
@@ -185,12 +263,7 @@ func (a *Agent) SendReport(report Report) error {
 	if err != nil {
 		return fmt.Errorf("failed to send report: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-
-		}
-	}(resp.Body)
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("othela returned with status: %s", resp.Status)
@@ -266,6 +339,13 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(), "ANSIBLE_STDOUT_CALLBACK=json")
 
+	if len(job.ExtraVars) > 0 {
+		extraVarsFile := filepath.Join(workDir, ".helvilette_extra_vars.json")
+		data, _ := json.Marshal(job.ExtraVars)
+		os.WriteFile(extraVarsFile, data, 0644)
+		cmd.Args = append(cmd.Args, "-e", "@"+extraVarsFile)
+	}
+
 	logger.Debug().
 		Str("command", cmd.String()).
 		Str("work_dir", workDir).
@@ -301,6 +381,10 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 
 // ProcessJob handles a job from Othela
 func (a *Agent) ProcessJob(job *Job) error {
+	if job == nil {
+		return nil
+	}
+
 	logger := log.WithComponent("agent")
 
 	// Check if this is a new job
@@ -345,7 +429,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		Str("othela_url", a.config.OthelaURL).
 		Dur("poll_interval", a.config.PollInterval).
 		Str("workspace_dir", a.config.WorkspaceDir).
+		Interface("labels", a.config.Labels).
 		Msg("Helvilette Agent started")
+
+	// First register the node
+	if err := a.RegisterNode(ctx); err != nil {
+		return fmt.Errorf("failed to register node: %w", err)
+	}
 
 	// Initialize systemd client
 	sdClient, err := systemd.NewClient()
@@ -372,6 +462,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-ticker.C:
 			job, err := a.Poll()
 			if err != nil {
+				// We expect to get 409 Conflict if node labels don't match any nodeGroup
 				logger.Error().Err(err).Msg("failed to poll Othela")
 				continue
 			}
@@ -411,6 +502,7 @@ func main() {
 		nodeID       string
 		pollInterval string
 		workspaceDir string
+		labels       string
 	)
 
 	var rootCmd = &cobra.Command{
@@ -418,7 +510,7 @@ func main() {
 		Short: "Helvilette Node Agent",
 		Long:  `The Node Agent runs on client machines, polls Othela for jobs, and executes Ansible playbooks.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cfg, err := LoadConfig(configFile, othelaURL, nodeID, pollInterval, workspaceDir)
+			cfg, err := LoadConfig(configFile, othelaURL, nodeID, pollInterval, workspaceDir, labels)
 			if err != nil {
 				log.Fatal().Err(err).Msg("failed to load configuration")
 			}
@@ -449,6 +541,7 @@ func main() {
 	rootCmd.Flags().StringVar(&nodeID, "node-id", "", "Unique identifier for this node")
 	rootCmd.Flags().StringVar(&pollInterval, "poll-interval", "", "Interval between polls to Othela (e.g. 5s)")
 	rootCmd.Flags().StringVar(&workspaceDir, "workspace-dir", "", "Directory for storing agent workspace files")
+	rootCmd.Flags().StringVar(&labels, "labels", "", "Comma-separated key=value labels (e.g. role=web,env=prod)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

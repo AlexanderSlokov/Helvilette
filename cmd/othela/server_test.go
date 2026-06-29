@@ -8,12 +8,26 @@ import (
 	"testing"
 )
 
+func registerNode(server *Server, nodeID string, labels map[string]string) {
+	reqBody := NodeRegistration{
+		NodeID: nodeID,
+		Labels: labels,
+	}
+	data, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/api/v1/nodes/register", bytes.NewReader(data))
+	w := httptest.NewRecorder()
+	server.Router().ServeHTTP(w, req)
+}
+
 func TestSyncEndpoint(t *testing.T) {
 	job := Job{
 		JobID:           "test-job-123",
 		PlaybookContent: "test playbook content",
 	}
 	server := NewServerWithJob(job)
+	
+	// Must register node first
+	registerNode(server, "agent-01", nil)
 
 	req := httptest.NewRequest("GET", "/api/v1/sync/agent-01", nil)
 	w := httptest.NewRecorder()
@@ -48,6 +62,9 @@ func TestSyncEndpoint_DifferentNodeIDs(t *testing.T) {
 
 	nodeIDs := []string{"node-1", "node-2", "agent-alpha"}
 	for _, nodeID := range nodeIDs {
+		// Must register node first
+		registerNode(server, nodeID, nil)
+		
 		t.Run(nodeID, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/api/v1/sync/"+nodeID, nil)
 			w := httptest.NewRecorder()
@@ -163,6 +180,9 @@ func TestSetCurrentJob(t *testing.T) {
 		PlaybookContent: "new content",
 	}
 	server.SetCurrentJob(newJob)
+	
+	// Must register node first
+	registerNode(server, "test-agent", nil)
 
 	// Verify through sync endpoint
 	req := httptest.NewRequest("GET", "/api/v1/sync/test-agent", nil)

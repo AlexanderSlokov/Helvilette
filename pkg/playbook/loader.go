@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"helvilette/pkg/log"
+	"helvilette/pkg/manifest"
 )
 
 var (
@@ -80,6 +81,14 @@ func (l *Loader) Scan() ([]Playbook, error) {
 			Path:     relPath,
 			FullPath: playbookPath,
 			ModTime:  info.ModTime(),
+		}
+
+		manifestPath := filepath.Join(l.baseDir, entry.Name(), "helvilette.yml")
+		if m, err := manifest.ParseFile(manifestPath); err == nil {
+			pb.Manifest = m
+			logger.Debug().Str("manifest", manifestPath).Msg("loaded manifest for playbook")
+		} else if !os.IsNotExist(err) {
+			logger.Warn().Err(err).Str("manifest", manifestPath).Msg("failed to parse manifest")
 		}
 
 		l.playbooks[pb.ID] = &pb

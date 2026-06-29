@@ -19,6 +19,7 @@ var _ = Describe("GitOps Workflow", func() {
 	var gitContainer testcontainers.Container
 	var othelaContainer testcontainers.Container
 	var agentContainer testcontainers.Container
+	var agent2Container testcontainers.Container
 	var network testcontainers.Network
 
 	BeforeEach(func() {
@@ -116,6 +117,7 @@ var _ = Describe("GitOps Workflow", func() {
 				"--node-id=agent-01",
 				"--poll-interval=5s",
 				"--workspace-dir=/tmp/helvilette",
+				"--labels=role=edge-proxy",
 			},
 		}
 		agentContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -123,10 +125,41 @@ var _ = Describe("GitOps Workflow", func() {
 			Started:          true,
 		})
 		Expect(err).NotTo(HaveOccurred())
+
+		// 4. Setup Agent 2 (Unmatched labels)
+		agentReq2 := testcontainers.ContainerRequest{
+			FromDockerfile: testcontainers.FromDockerfile{
+				Context:    repoRoot,
+				Dockerfile: "Dockerfile.agent",
+			},
+			Env: map[string]string{
+				"OTHELA_URL": "http://othela:8080",
+			},
+			Networks: []string{networkName},
+			NetworkAliases: map[string][]string{
+				networkName: {"agent-02"},
+			},
+			Cmd: []string{
+				"./agent",
+				"--othela-url=http://othela:8080",
+				"--node-id=agent-02",
+				"--poll-interval=5s",
+				"--workspace-dir=/tmp/helvilette",
+				"--labels=role=database",
+			},
+		}
+		agent2Container, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: agentReq2,
+			Started:          true,
+		})
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
 		// Cleanup containers
+		if agent2Container != nil {
+			agent2Container.Terminate(ctx)
+		}
 		if agentContainer != nil {
 			agentContainer.Terminate(ctx)
 		}
@@ -185,6 +218,16 @@ var _ = Describe("GitOps Workflow", func() {
 			logBytes, _ := io.ReadAll(logs)
 			return string(logBytes)
 		}, 3*time.Minute, 5*time.Second).Should(ContainSubstring("playbook execution"))
+
+		// Check agent 2 logs to confirm it fails to get job due to label mismatch
+		Eventually(func() string {
+			logs, err := agent2Container.Logs(ctx)
+			if err != nil {
+				return ""
+			}
+			logBytes, _ := io.ReadAll(logs)
+			return string(logBytes)
+		}, 30*time.Second, 2*time.Second).Should(ContainSubstring("label mismatch (409)"))
 	})
 
 	It("Should expose health and readiness endpoints on Othela", func() {
