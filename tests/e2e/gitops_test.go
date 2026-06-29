@@ -76,6 +76,7 @@ var _ = Describe("GitOps Workflow", func() {
 				"./othela",
 				"--port=8080",
 				"--data-dir=/app/data/playbooks",
+				"--log-level=debug",
 			},
 			Env: map[string]string{
 				"HELV_TEST_REPO_URL": "git://git-server:9418/nginx-collection",
@@ -219,15 +220,15 @@ var _ = Describe("GitOps Workflow", func() {
 			return string(logBytes)
 		}, 3*time.Minute, 5*time.Second).Should(ContainSubstring("playbook execution"))
 
-		// Check agent 2 logs to confirm it fails to get job due to label mismatch
+		// Check othela logs to confirm it gracefully ignores agent 2
 		Eventually(func() string {
-			logs, err := agent2Container.Logs(ctx)
+			logs, err := othelaContainer.Logs(ctx)
 			if err != nil {
 				return ""
 			}
 			logBytes, _ := io.ReadAll(logs)
 			return string(logBytes)
-		}, 30*time.Second, 2*time.Second).Should(ContainSubstring("label mismatch (409)"))
+		}, 30*time.Second, 2*time.Second).Should(ContainSubstring("[DEBUG] Node agent-02 has labels"))
 	})
 
 	It("Should expose health and readiness endpoints on Othela", func() {

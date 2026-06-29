@@ -57,11 +57,12 @@ Hiện tại Job đang broadcast. Cần gán việc có đích.
 - [x] **`pkg/manifest` package (NEW):** Parse `helvilette.yml` → Go structs. Chỉ parse `apiVersion`, `kind`, `metadata`, `spec.repo/branch/playbook`, `nodeGroups[].nodeSelector`, `nodeGroups[].ansible.extra_vars`.
 - [x] **Agent labels config:** Thêm `Labels map[string]string` vào `AgentConfiguration`. Support CLI (`--labels`), YAML config, ENV (`AGENT_LABELS`).
 - [x] **Node Registration API:** `POST /api/v1/nodes/register` — Agent gửi nodeID + labels. Othela lưu vào in-memory registry (interface sẵn sàng cho SQLite swap).
-- [x] **Othela dispatcher update:** `handleSync()` đọc labels từ registry, match với `nodeSelector` từ manifest, trả về đúng job + extra_vars cho đúng node. Nếu không match → fail loudly.
+- [x] **Othela dispatcher update:** `handleSync()` đọc labels từ registry, match với `nodeSelector` từ manifest, trả về đúng job + extra_vars cho đúng node. Nếu không match → fail loudly. *(Update: Đã chuyển sang trả về `204 No Content` và log ở mức `DEBUG` thay vì `409 Conflict` để tránh spam log)*.
 - [x] **Agent `ExtraVars` execution:** Khi job có `extra_vars`, agent viết ra file JSON và append `-e @file` vào `ansible-playbook` command.
 - [x] **Job struct update:** Thêm `ExtraVars map[string]string` vào `pkg/types.Job`.
 - [x] **Unit tests:** `pkg/manifest` parser + nodeSelector matching.
 - [x] **E2E update:** Agent với labels `role=edge-proxy` nhận job, agent với labels khác không nhận.
+- [x] **Othela Debug Mode:** Hỗ trợ cờ `--log-level=debug`. Ẩn các dòng log polling (`[SYNC] Node X is asking for work...`) và log label mismatch khỏi mức `INFO` mặc định để hệ thống chạy êm ái hơn.
 
 ### 3.3. Persistence Layer cho Othela (SQLite)
 Hiện tại Othela lưu trên memory. Cần cơ sở dữ liệu để ghi nhận lịch sử.

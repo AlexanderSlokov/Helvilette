@@ -40,6 +40,8 @@ var rootCmd = &cobra.Command{
 			server = NewServerWithLoader(loader)
 		}
 
+		server.SetDebug(logLevel == "debug")
+
 		httpServer := server.NewHTTPServer(addr)
 
 		// Graceful shutdown: listen for SIGINT / SIGTERM

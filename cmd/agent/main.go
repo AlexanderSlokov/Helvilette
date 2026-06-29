@@ -233,7 +233,7 @@ func (a *Agent) Poll() (*Job, error) {
 
 	if resp.StatusCode == http.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("label mismatch (409): %s", string(body))
+		return nil, fmt.Errorf("conflict (409): %s", string(body))
 	}
 	if resp.StatusCode == http.StatusNoContent {
 		return nil, nil
@@ -462,7 +462,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-ticker.C:
 			job, err := a.Poll()
 			if err != nil {
-				// We expect to get 409 Conflict if node labels don't match any nodeGroup
 				logger.Error().Err(err).Msg("failed to poll Othela")
 				continue
 			}

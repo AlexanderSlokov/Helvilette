@@ -71,6 +71,7 @@ type Server struct {
 	reports      []Report
 	mu           sync.RWMutex
 	ready        atomic.Bool // readiness probe state
+	debugMode    bool
 }
 
 // NewServer creates a new Othela server with default configuration
@@ -207,6 +208,11 @@ func (s *Server) GetReports() []Report {
 	return append([]Report{}, s.reports...)
 }
 
+// SetDebug enables or disables debug logging
+func (s *Server) SetDebug(debug bool) {
+	s.debugMode = debug
+}
+
 type NodeRegistration struct {
 	NodeID string            `json:"node_id"`
 	Labels map[string]string `json:"labels"`
@@ -233,7 +239,9 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["node_id"]
 
-	log.Printf("[SYNC] Node %s is asking for work...", nodeID)
+	if s.debugMode {
+		log.Printf("[DEBUG] [SYNC] Node %s is asking for work...", nodeID)
+	}
 
 	if !s.nodeRegistry.IsRegistered(nodeID) {
 		http.Error(w, "node not registered, call POST /api/v1/nodes/register first", http.StatusForbidden)
@@ -293,9 +301,11 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if matchedJob == nil {
-		// Fail loudly
-		log.Printf("[ERROR] Node %s has labels %v, but no nodeSelectors matched", nodeID, labels)
-		http.Error(w, fmt.Sprintf("no matching nodeGroups for labels %v", labels), http.StatusConflict)
+		// Graceful idle: No matching nodeGroups
+		if s.debugMode {
+			log.Printf("[DEBUG] Node %s has labels %v, but no nodeSelectors matched", nodeID, labels)
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
