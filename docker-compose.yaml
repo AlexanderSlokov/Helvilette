@@ -1,4 +1,16 @@
 services:
+  git-server:
+    image: alpine:3.19
+    command: >
+      sh -c "apk add --no-cache git git-daemon && 
+      git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack"
+    volumes:
+      - ./tests/e2e/data/playbooks/nginx-collection:/git/nginx-collection
+    networks:
+      - helvilette-net
+    ports:
+      - "9418:9418"
+
   othela:
     build:
       context: .
@@ -6,10 +18,14 @@ services:
     image: helvilette-othela:local
     ports:
       - "8080:8080"
+    environment:
+      - HELV_TEST_REPO_URL=git://git-server:9418/nginx-collection
     volumes:
       - ./tests/e2e/data:/app/helvillette/othela/data
     networks:
       - helvilette-net
+    depends_on:
+      - git-server
     command: ["./othela", "--port=8080", "--data-dir=helvillette/othela/data/playbooks", "--log-level=info"]
     restart: unless-stopped
 
@@ -23,6 +39,7 @@ services:
       - NODE_ID=node-1
       - POLL_INTERVAL=5s
       - WORKSPACE_DIR=/tmp/helvilette
+      - AGENT_LABELS=role=edge-proxy
     volumes:
       - ./data/agent-1:/tmp/helvilette
     networks:
@@ -42,6 +59,7 @@ services:
       - NODE_ID=node-2
       - POLL_INTERVAL=5s
       - WORKSPACE_DIR=/tmp/helvilette
+      - AGENT_LABELS=role=database
     volumes:
       - ./data/agent-2:/tmp/helvilette
     networks:
