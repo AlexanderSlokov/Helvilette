@@ -37,3 +37,4 @@ go.work.sum
 /tests/e2e/data/playbooks/ansible-collection-hardening/
 /bin
 /data/gitea
+/data
