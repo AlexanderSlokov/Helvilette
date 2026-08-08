@@ -7,9 +7,9 @@
 all: build
 
 # Build binaries
-build:
-	go build -o bin/othela ./cmd/othela
-	go build -o bin/agent ./cmd/agent
+build: 
+	CGO_ENABLED=1 go build -o bin/othela ./cmd/othela
+	CGO_ENABLED=1 go build -o bin/agent ./cmd/agent
 
 # Run all tests
 test:
