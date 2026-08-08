@@ -38,9 +38,12 @@ Phân phối Job dựa trên Node Labels và Registration.
 
 ### 3.3. Persistence Layer cho Othela (SQLite)
 Hiện tại Othela lưu trên memory. Cần cơ sở dữ liệu để ghi nhận lịch sử.
-- [ ] Tích hợp SQLite driver.
-- [ ] Implement tables/models cho Node Registry (thông tin các Agent đang kết nối).
-- [ ] Implement tables/models cho Job History & Execution Reports.
+- [x] Tích hợp SQLite driver (mattn/go-sqlite3, theo k3s/kine).
+- [x] Tách storage interface (pkg/storage): NodeStore, ReportStore.
+- [x] Implement in-memory adapter (pkg/storage/memory.go).
+- [x] Implement SQLite adapter (pkg/storage/sqlite.go) cho Node Registry va Execution Reports.
+- [x] Inject SQLite vào Othela qua ServerConfig, DB path: {data-dir}/server/db/state.db.
+- [ ] Implement tables/models cho Job History (ghi lại job đã gửi cho agent nào, khi nào).
 
 ### 3.4. Security & Basic Authentication
 - [ ] Implement Pre-shared token / API key cho Agent ↔ Othela.

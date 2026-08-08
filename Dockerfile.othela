@@ -6,7 +6,9 @@ RUN go mod download
 
 COPY . .
 RUN go mod tidy
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/othela ./cmd/othela
+# CGO_ENABLED=1 required for mattn/go-sqlite3 (same driver as k3s/kine).
+# golang:1.25.6 image already has gcc installed.
+RUN CGO_ENABLED=1 GOOS=linux go build -o /app/othela ./cmd/othela
 
 FROM debian:bookworm-slim
 

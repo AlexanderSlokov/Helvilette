@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"helvilette/pkg/playbook"
+	"helvilette/pkg/storage"
 )
 
 var (
@@ -29,18 +32,37 @@ var rootCmd = &cobra.Command{
 
 		addr := fmt.Sprintf(":%d", port)
 
-		var server *Server
+		// Track resources that need cleanup on shutdown
+		var closers []io.Closer
 
+		cfg := ServerConfig{
+			DebugMode: logLevel == "debug",
+		}
+
+		// Initialize SQLite storage at {data-dir}/server/db/state.db
+		// following k3s convention for DB file location.
+		dbPath := filepath.Join(dataDir, "server", "db", "state.db")
+		sqliteStore, err := storage.NewSQLiteStore(dbPath)
+		if err != nil {
+			log.Printf("[WARN] Could not initialize SQLite at %s: %v", dbPath, err)
+			log.Printf("[WARN] Falling back to in-memory storage")
+		} else {
+			log.Printf("[STORAGE] SQLite initialized at %s", dbPath)
+			cfg.NodeStore = sqliteStore
+			cfg.ReportStore = sqliteStore
+			closers = append(closers, sqliteStore)
+		}
+
+		// Initialize playbook loader
 		loader, err := playbook.NewLoader(dataDir)
 		if err != nil {
 			log.Printf("[WARN] Could not initialize playbook loader at %s: %v", dataDir, err)
-			log.Printf("[WARN] Falling back to default server (no playbook loading)")
-			server = NewServer()
+			log.Printf("[WARN] Starting without playbook loading")
 		} else {
-			server = NewServerWithLoader(loader)
+			cfg.Loader = loader
 		}
 
-		server.SetDebug(logLevel == "debug")
+		server := NewServerWithConfig(cfg)
 
 		httpServer := server.NewHTTPServer(addr)
 
@@ -75,6 +97,13 @@ var rootCmd = &cobra.Command{
 			log.Fatalf("[SHUTDOWN] Graceful shutdown failed: %v", err)
 		}
 
+		// Close storage backends (SQLite, etc.)
+		for _, c := range closers {
+			if err := c.Close(); err != nil {
+				log.Printf("[SHUTDOWN] Error closing resource: %v", err)
+			}
+		}
+
 		log.Printf("[SHUTDOWN] Othela stopped gracefully.")
 	},
 }
@@ -91,3 +120,4 @@ func main() {
 		os.Exit(1)
 	}
 }
+
