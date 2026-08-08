@@ -29,8 +29,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # gcc is pre-installed on ubuntu-latest, but be explicit
-      # in case the runner image changes.
       - name: Install C toolchain (CGO for go-sqlite3)
         run: sudo apt-get update && sudo apt-get install -y gcc
 
@@ -58,11 +56,11 @@ jobs:
           CGO_ENABLED: "1"
 
       - name: Build Othela binary
-        run: go build -o bin/othela ./cmd/othela/...
+        run: go build -o bin/othela ./cmd/othela
         env:
           CGO_ENABLED: "1"
 
       - name: Build Agent binary
-        run: go build -o bin/agent ./cmd/agent/...
+        run: go build -o bin/agent ./cmd/agent
         env:
           CGO_ENABLED: "1"
