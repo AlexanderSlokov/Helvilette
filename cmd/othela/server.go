@@ -132,6 +132,82 @@ func NewServerWithJob(job Job) *Server {
 	return s
 }
 
+// ServerConfig holds injectable dependencies for creating a Server.
+// Use this when you need to supply a non-default storage backend (e.g. SQLite).
+type ServerConfig struct {
+	NodeStore   storage.NodeStore
+	ReportStore storage.ReportStore
+	Loader      *playbook.Loader
+	DebugMode   bool
+}
+
+// NewServerWithConfig creates a Server with externally provided dependencies.
+// Falls back to in-memory stores if NodeStore or ReportStore is nil.
+func NewServerWithConfig(cfg ServerConfig) *Server {
+	nodeStore := cfg.NodeStore
+	if nodeStore == nil {
+		nodeStore = storage.NewMemoryNodeStore()
+	}
+	reportStore := cfg.ReportStore
+	if reportStore == nil {
+		reportStore = storage.NewMemoryReportStore()
+	}
+
+	s := &Server{
+		router:      mux.NewRouter(),
+		loader:      cfg.Loader,
+		nodeStore:   nodeStore,
+		reportStore: reportStore,
+		debugMode:   cfg.DebugMode,
+	}
+	s.ready.Store(true)
+
+	// If loader is provided, scan playbooks (same logic as NewServerWithLoader)
+	if cfg.Loader != nil {
+		playbooks, err := cfg.Loader.Scan()
+		if err == nil {
+			s.playbooks = playbooks
+		}
+
+		if err == nil && len(playbooks) > 0 {
+			content, loadErr := cfg.Loader.Load(playbooks[0].ID)
+			if loadErr == nil {
+				repoURL := os.Getenv("HELV_TEST_REPO_URL")
+				if repoURL == "" {
+					repoURL = "http://git-server:3000/helvilette/nginx-collection.git"
+				}
+				s.currentJob = Job{
+					JobID:           "job-" + playbooks[0].ID,
+					RepoURL:         repoURL,
+					Version:         "main",
+					PlaybookPath:    "playbook.yml",
+					PlaybookContent: content,
+				}
+				log.Printf("[LOADER] Mocked GitOps Job with RepoURL: %s", s.currentJob.RepoURL)
+			}
+		}
+
+		if s.currentJob.JobID == "" {
+			s.currentJob = Job{
+				JobID: "job-" + fmt.Sprintf("%d", time.Now().Unix()),
+				PlaybookContent: `
+- name: Helvilette Fallback Job
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: No playbooks found
+      debug:
+        msg: "No playbooks available in data/playbooks/"
+`,
+			}
+		}
+	}
+
+	s.setupRoutes()
+	return s
+}
+
 func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/api/v1/nodes/register", s.handleRegisterNode).Methods("POST")
 	s.router.HandleFunc("/api/v1/sync/{node_id}", s.handleSync).Methods("GET")
