@@ -1,0 +1,68 @@
+name: Othela CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'release/**'
+      - '*-rc-*'
+  pull_request:
+    branches:
+      - main
+      - develop
+      - 'release/**'
+      - '*-rc-*'
+
+jobs:
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # gcc is pre-installed on ubuntu-latest, but be explicit
+      # in case the runner image changes.
+      - name: Install C toolchain (CGO for go-sqlite3)
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+        env:
+          CGO_ENABLED: "1"
+
+      - name: Unit tests -- Othela server
+        run: go test ./cmd/othela/... -v -count=1
+        env:
+          CGO_ENABLED: "1"
+
+      - name: Unit tests -- Storage (Memory + SQLite)
+        run: go test ./pkg/storage/... -v -count=1
+        env:
+          CGO_ENABLED: "1"
+
+      - name: Unit tests -- All packages
+        run: go test ./pkg/... -v -count=1
+        env:
+          CGO_ENABLED: "1"
+
+      - name: Build Othela binary
+        run: go build -o bin/othela ./cmd/othela/...
+        env:
+          CGO_ENABLED: "1"
+
+      - name: Build Agent binary
+        run: go build -o bin/agent ./cmd/agent/...
+        env:
+          CGO_ENABLED: "1"
