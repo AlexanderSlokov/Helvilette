@@ -14,6 +14,7 @@ import (
 
 	"helvilette/pkg/manifest"
 	"helvilette/pkg/playbook"
+	"helvilette/pkg/storage"
 	"helvilette/pkg/types"
 )
 
@@ -21,65 +22,25 @@ import (
 type Job = types.Job
 type Report = types.Report
 
-// NodeRegistry interface — designed for SQLite swap later
-type NodeRegistry interface {
-	Register(nodeID string, labels map[string]string) error
-	GetLabels(nodeID string) (map[string]string, bool)
-	IsRegistered(nodeID string) bool
-}
-
-// InMemoryNodeRegistry implementation
-type InMemoryNodeRegistry struct {
-	mu    sync.RWMutex
-	nodes map[string]map[string]string // nodeID → labels
-}
-
-func NewInMemoryNodeRegistry() *InMemoryNodeRegistry {
-	return &InMemoryNodeRegistry{
-		nodes: make(map[string]map[string]string),
-	}
-}
-
-func (r *InMemoryNodeRegistry) Register(nodeID string, labels map[string]string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.nodes[nodeID] = labels
-	return nil
-}
-
-func (r *InMemoryNodeRegistry) GetLabels(nodeID string) (map[string]string, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	labels, ok := r.nodes[nodeID]
-	return labels, ok
-}
-
-func (r *InMemoryNodeRegistry) IsRegistered(nodeID string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, ok := r.nodes[nodeID]
-	return ok
-}
-
 // Server represents the Othela control plane server
 type Server struct {
-	router       *mux.Router
-	loader       *playbook.Loader
-	currentJob   Job // fallback / testing
-	playbooks    []playbook.Playbook
-	nodeRegistry NodeRegistry
-	reports      []Report
-	mu           sync.RWMutex
-	ready        atomic.Bool // readiness probe state
-	debugMode    bool
+	router      *mux.Router
+	loader      *playbook.Loader
+	currentJob  Job // fallback / testing
+	playbooks   []playbook.Playbook
+	nodeStore   storage.NodeStore
+	reportStore storage.ReportStore
+	mu          sync.RWMutex  // protects currentJob and playbooks only
+	ready       atomic.Bool   // readiness probe state
+	debugMode   bool
 }
 
 // NewServer creates a new Othela server with default configuration
 func NewServer() *Server {
 	s := &Server{
-		router:       mux.NewRouter(),
-		reports:      make([]Report, 0),
-		nodeRegistry: NewInMemoryNodeRegistry(),
+		router:      mux.NewRouter(),
+		nodeStore:   storage.NewMemoryNodeStore(),
+		reportStore: storage.NewMemoryReportStore(),
 	}
 	s.ready.Store(true)
 
@@ -105,10 +66,10 @@ func NewServer() *Server {
 // NewServerWithLoader creates a new Othela server with a playbook loader
 func NewServerWithLoader(loader *playbook.Loader) *Server {
 	s := &Server{
-		router:       mux.NewRouter(),
-		loader:       loader,
-		reports:      make([]Report, 0),
-		nodeRegistry: NewInMemoryNodeRegistry(),
+		router:      mux.NewRouter(),
+		loader:      loader,
+		nodeStore:   storage.NewMemoryNodeStore(),
+		reportStore: storage.NewMemoryReportStore(),
 	}
 	s.ready.Store(true)
 
@@ -161,10 +122,10 @@ func NewServerWithLoader(loader *playbook.Loader) *Server {
 // NewServerWithJob creates a server with a specific job (for testing)
 func NewServerWithJob(job Job) *Server {
 	s := &Server{
-		router:       mux.NewRouter(),
-		currentJob:   job,
-		reports:      make([]Report, 0),
-		nodeRegistry: NewInMemoryNodeRegistry(),
+		router:      mux.NewRouter(),
+		currentJob:  job,
+		nodeStore:   storage.NewMemoryNodeStore(),
+		reportStore: storage.NewMemoryReportStore(),
 	}
 	s.ready.Store(true)
 	s.setupRoutes()
@@ -201,11 +162,10 @@ func (s *Server) SetCurrentJob(job Job) {
 	s.currentJob = job
 }
 
-// GetReports returns all received reports
+// GetReports returns all received reports.
 func (s *Server) GetReports() []Report {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return append([]Report{}, s.reports...)
+	reports, _ := s.reportStore.List()
+	return reports
 }
 
 // SetDebug enables or disables debug logging
@@ -225,7 +185,7 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.nodeRegistry.Register(req.NodeID, req.Labels)
+	s.nodeStore.Register(req.NodeID, req.Labels)
 	
 	log.Printf("[REGISTER] Node %s registered with labels %v", req.NodeID, req.Labels)
 	
@@ -243,12 +203,12 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[DEBUG] [SYNC] Node %s is asking for work...", nodeID)
 	}
 
-	if !s.nodeRegistry.IsRegistered(nodeID) {
+	if !s.nodeStore.IsRegistered(nodeID) {
 		http.Error(w, "node not registered, call POST /api/v1/nodes/register first", http.StatusForbidden)
 		return
 	}
 
-	labels, _ := s.nodeRegistry.GetLabels(nodeID)
+	labels, _ := s.nodeStore.GetLabels(nodeID)
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -321,9 +281,9 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	s.reports = append(s.reports, report)
-	s.mu.Unlock()
+	if err := s.reportStore.Save(report); err != nil {
+		log.Printf("[ERROR] Failed to save report: %v", err)
+	}
 
 	log.Printf("---------------------------------------------------")
 	log.Printf("[REPORT] Received Report from Node: %s, Job: %s", report.NodeID, report.JobID)
