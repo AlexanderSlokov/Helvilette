@@ -349,6 +349,21 @@ Drift detection liên tục + báo cáo tập trung đáp ứng trực tiếp nh
 
 Helvilette không phải là công cụ compliance. Nhưng drift detection report từ Othela có thể trở thành bằng chứng audit tự động -- thứ mà không công cụ nào trong danh sách đối thủ cung cấp out-of-the-box.
 
+### Luận điểm 3: Sự thật về bảo mật Control Plane trong Open Source
+
+Một chỉ trích phổ biến đối với bất kỳ hệ thống centralized nào là: *"Nếu Othela bị tấn công thì sao? Nó có khác gì k8s apiserver hay Nomad server bị tấn công không?"*
+
+Sự thật phũ phàng là: **Đã là công cụ quản lý hạ tầng thì chắc chắn sẽ trở thành mục tiêu tấn công.** Điều này đúng với Kubernetes, Nomad, DirectAdmin, Cyberpanel, và dĩ nhiên là cả Othela. Tuy nhiên, cần làm rõ giới hạn trách nhiệm trong phát triển Open Source (Apache 2.0):
+
+**1. Vấn đề nguồn lực (Bản chất của OSS):**
+Semaphore, Portainer, hay k3s (được SUSE hậu thuẫn) có ngân sách để thuê kỹ sư bảo mật, audit liên tục, và trả tiền cho các dịch vụ pentest chuyên nghiệp. Helvilette là một dự án mã nguồn mở, cộng đồng duy trì, cấp phép theo Apache 2.0 ("AS IS" - không bảo hành). Khắt khe đòi hỏi Helvilette phải có mức độ bảo mật mặc định ngang ngửa các sản phẩm thương mại trị giá hàng triệu đô la là một kỳ vọng phi thực tế.
+
+**2. Trách nhiệm chia sẻ (Shared Responsibility):**
+Giống như việc than phiền "tàu điện ngầm hôi" nhưng bản thân không giữ vệ sinh công cộng. Người dùng sử dụng mã nguồn mở miễn phí phải tự chịu trách nhiệm về việc bảo vệ Control Plane của mình (ví dụ: đặt Othela sau VPN, dùng firewall nghiêm ngặt, cấu hình mTLS, giới hạn access). Bạn không thể "cắm" một control plane trần trụi ra public internet rồi đổ lỗi cho nhà phát triển khi nó bị khai thác.
+
+**3. Giảm thiểu thiệt hại (Blast Radius) bằng Kiến trúc:**
+Dù không có ngân sách pentest, kiến trúc pull-based của Helvilette vẫn vượt trội hơn về mặt phòng thủ thụ động. Nếu Othela bị tấn công, kẻ gian có thể phá hoại cấu hình hoặc làm giả báo cáo, nhưng **không có sẵn SSH keys để nhảy (pivot) sang các node khác**. Ngược lại, nếu Semaphore hay AWX bị tấn công, toàn bộ hạ tầng rơi vào tay giặc ngay lập tức vì chúng nắm giữ "chìa khóa vạn năng". Kiến trúc tốt tự thân nó đã là một lớp bảo mật.
+
 ---
 
 ## Tổng kết đã chỉnh sửa
