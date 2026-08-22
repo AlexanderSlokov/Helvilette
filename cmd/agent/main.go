@@ -60,7 +60,31 @@ func parseLabels(s string) map[string]string {
 func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspaceDir, cliLabels string) (AgentConfiguration, error) {
 	config := DefaultConfig()
 
-	// 1. Load from YAML file if provided
+	// 1. Override with Environment Variables
+	if url := os.Getenv("OTHELA_URL"); url != "" {
+		config.OthelaURL = url
+	}
+	if nodeID := os.Getenv("NODE_ID"); nodeID != "" {
+		config.NodeID = nodeID
+	}
+	if interval := os.Getenv("POLL_INTERVAL"); interval != "" {
+		if parsed, err := time.ParseDuration(interval); err == nil {
+			config.PollInterval = parsed
+		}
+	}
+	if dir := os.Getenv("WORKSPACE_DIR"); dir != "" {
+		config.WorkspaceDir = dir
+	}
+	if labelsStr := os.Getenv("AGENT_LABELS"); labelsStr != "" {
+		envLabels := parseLabels(labelsStr)
+		for k, v := range envLabels {
+			config.Labels[k] = v
+		}
+	}
+
+	// 2. Override with the YAML file if provided. An explicit, version-controlled
+	// config file outranks ambient environment variables, so that what an operator
+	// reads in the file is what the agent actually runs. See docs/informations/ADRs/ADR-0001.md.
 	if configPath != "" {
 		data, err := os.ReadFile(configPath)
 		if err != nil {
@@ -75,7 +99,11 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 			Labels       map[string]string `yaml:"labels"`
 		}
 
-		if err := yaml.Unmarshal(data, &raw); err != nil {
+		// Reject unknown keys rather than silently ignoring them: a misspelled key
+		// would otherwise leave the agent quietly running on defaults.
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(&raw); err != nil && err != io.EOF {
 			return config, fmt.Errorf("failed to parse config file: %w", err)
 		}
 
@@ -95,29 +123,9 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 			}
 			config.PollInterval = d
 		}
-		if len(raw.Labels) > 0 {
-			config.Labels = raw.Labels
-		}
-	}
-
-	// 2. Override with Environment Variables
-	if url := os.Getenv("OTHELA_URL"); url != "" {
-		config.OthelaURL = url
-	}
-	if nodeID := os.Getenv("NODE_ID"); nodeID != "" {
-		config.NodeID = nodeID
-	}
-	if interval := os.Getenv("POLL_INTERVAL"); interval != "" {
-		if parsed, err := time.ParseDuration(interval); err == nil {
-			config.PollInterval = parsed
-		}
-	}
-	if dir := os.Getenv("WORKSPACE_DIR"); dir != "" {
-		config.WorkspaceDir = dir
-	}
-	if labelsStr := os.Getenv("AGENT_LABELS"); labelsStr != "" {
-		envLabels := parseLabels(labelsStr)
-		for k, v := range envLabels {
+		// Merge per key, like the env and CLI label sources, so that labels set in
+		// the environment survive unless the file overrides that specific key.
+		for k, v := range raw.Labels {
 			config.Labels[k] = v
 		}
 	}
