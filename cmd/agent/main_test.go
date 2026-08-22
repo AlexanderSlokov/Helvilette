@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewAgent(t *testing.T) {
@@ -38,8 +40,15 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("unexpected default OthelaURL: %s", config.OthelaURL)
 	}
 
-	if config.NodeID != "agent-01" {
-		t.Errorf("unexpected default NodeID: %s", config.NodeID)
+	// The default is the hostname, so that nodes stay distinguishable when nodeID is
+	// never configured. Only an unavailable hostname falls back to a static value.
+	hostname, err := os.Hostname()
+	if err == nil && hostname != "" {
+		if config.NodeID != hostname {
+			t.Errorf("unexpected default NodeID: got %q, want the hostname %q", config.NodeID, hostname)
+		}
+	} else if config.NodeID != fallbackNodeID {
+		t.Errorf("unexpected default NodeID: got %q, want %q", config.NodeID, fallbackNodeID)
 	}
 
 	if config.PollInterval.Seconds() != 5 {
@@ -277,7 +286,7 @@ func TestParseLabels(t *testing.T) {
 }
 
 func TestLoadConfig_CLI_Overrides(t *testing.T) {
-	config, err := LoadConfig("", "http://cli:8080", "cli-node", "10s", "/tmp/cli", "role=db")
+	config, _, err := LoadConfig("", "http://cli:8080", "cli-node", "10s", "/tmp/cli", "role=db")
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -317,7 +326,7 @@ pollInterval: "7s"
 workspaceDir: "/tmp/file"
 `)
 
-	config, err := LoadConfig(path, "", "", "", "", "")
+	config, _, err := LoadConfig(path, "", "", "", "", "")
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -344,7 +353,7 @@ func TestLoadConfig_EnvFillsGapsInYAML(t *testing.T) {
 	path := writeConfigFile(t, `othelaURL: "http://from-file:8080"
 `)
 
-	config, err := LoadConfig(path, "", "", "", "", "")
+	config, _, err := LoadConfig(path, "", "", "", "", "")
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -369,7 +378,7 @@ func TestLoadConfig_CLIOverridesYAMLAndEnv(t *testing.T) {
 nodeID: "file-node"
 `)
 
-	config, err := LoadConfig(path, "http://from-cli:8080", "cli-node", "", "", "")
+	config, _, err := LoadConfig(path, "http://from-cli:8080", "cli-node", "", "", "")
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -392,7 +401,7 @@ func TestLoadConfig_LabelsMergePerKey(t *testing.T) {
   region: "us-east"
 `)
 
-	config, err := LoadConfig(path, "", "", "", "", "role=db")
+	config, _, err := LoadConfig(path, "", "", "", "", "role=db")
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -421,9 +430,109 @@ func TestLoadConfig_UnknownKeyIsRejected(t *testing.T) {
 nodeId: "node-01"
 `)
 
-	_, err := LoadConfig(path, "", "", "", "", "")
+	_, _, err := LoadConfig(path, "", "", "", "", "")
 	if err == nil {
 		t.Fatal("expected unknown config keys to be rejected, got no error")
+	}
+}
+
+// Provenance must name the source that actually won each value, so that an operator can
+// explain a node's behaviour from its logs alone.
+func TestLoadConfig_ProvenanceReportsWinningSource(t *testing.T) {
+	t.Setenv("OTHELA_URL", "http://from-env:8080")
+	t.Setenv("NODE_ID", "env-node")
+	t.Setenv("AGENT_LABELS", "owner=sre,region=eu-west")
+
+	path := writeConfigFile(t, `nodeID: "file-node"
+workspaceDir: "/tmp/file"
+labels:
+  region: "us-east"
+  role: "edge-proxy"
+`)
+
+	_, provenance, err := LoadConfig(path, "", "", "", "", "role=db")
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	want := map[string]string{
+		"othelaURL":     "env(OTHELA_URL)",   // only the environment set it
+		"nodeID":        SourceConfigFile,    // file beat the environment
+		"workspaceDir":  SourceConfigFile,    // only the file set it
+		"pollInterval":  SourceDefault,       // nothing set it
+		"labels.owner":  "env(AGENT_LABELS)", // only the environment set it
+		"labels.region": SourceConfigFile,    // file beat the environment
+		"labels.role":   "cli(--labels)",     // CLI beat the file
+	}
+	for field, wantSource := range want {
+		if provenance[field] != wantSource {
+			t.Errorf("provenance[%q] = %q, want %q", field, provenance[field], wantSource)
+		}
+	}
+}
+
+// When nodeID falls through to the hostname, the provenance must say so rather than
+// reporting a bare "default", since the two have very different implications for a fleet.
+func TestLoadConfig_ProvenanceDistinguishesHostnameDefault(t *testing.T) {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		t.Skip("hostname unavailable on this machine")
+	}
+
+	config, provenance, err := LoadConfig("", "", "", "", "", "")
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if config.NodeID != hostname {
+		t.Errorf("expected nodeID to default to the hostname %q, got %q", hostname, config.NodeID)
+	}
+	if provenance["nodeID"] != SourceDefaultHostname {
+		t.Errorf("provenance[nodeID] = %q, want %q", provenance["nodeID"], SourceDefaultHostname)
+	}
+}
+
+func TestFormatConfig(t *testing.T) {
+	config := AgentConfiguration{
+		OthelaURL:    "http://othela:8080/api/v1",
+		NodeID:       "node-01",
+		PollInterval: 5 * time.Second,
+		WorkspaceDir: "/var/lib/helvilette/workspace",
+		Labels:       map[string]string{"role": "edge-proxy", "env": "production"},
+	}
+	provenance := ConfigProvenance{
+		"othelaURL":    SourceConfigFile,
+		"nodeID":       sourceEnv("NODE_ID"),
+		"workspaceDir": SourceConfigFile,
+		"labels.role":  SourceConfigFile,
+		// pollInterval and labels.env are deliberately absent.
+	}
+
+	out := FormatConfig(config, provenance)
+
+	for _, want := range []string{
+		"othelaURL    = http://othela:8080/api/v1",
+		"source=config-file",
+		"nodeID       = node-01",
+		"source=env(NODE_ID)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+
+	// A field with no recorded source must still be reported, not silently dropped.
+	if !strings.Contains(out, "pollInterval = 5s") {
+		t.Errorf("expected pollInterval to be reported, got:\n%s", out)
+	}
+
+	// Labels are sorted so two runs, or two nodes, can be diffed directly.
+	envAt, roleAt := strings.Index(out, "labels.env"), strings.Index(out, "labels.role")
+	if envAt == -1 || roleAt == -1 {
+		t.Fatalf("expected both labels to be reported, got:\n%s", out)
+	}
+	if envAt > roleAt {
+		t.Errorf("expected labels to be sorted, got:\n%s", out)
 	}
 }
 
@@ -433,7 +542,7 @@ func TestLoadConfig_EmptyFileIsNotAnError(t *testing.T) {
 
 	path := writeConfigFile(t, "")
 
-	config, err := LoadConfig(path, "", "", "", "", "")
+	config, _, err := LoadConfig(path, "", "", "", "", "")
 	if err != nil {
 		t.Fatalf("expected an empty config file to be accepted, got: %v", err)
 	}

@@ -6,7 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+* The agent logs its resolved configuration at startup under the message
+  `effective configuration`, naming the source of every value — `config-file`,
+  `env(NODE_ID)`, `cli(--othela-url)`, `default`, or `default(hostname)`. Individual labels
+  are reported per key. A node's behaviour can now be explained from its own logs, without
+  reconstructing the precedence rules from its systemd unit and container environment.
+  ([#11](https://github.com/AlexanderSlokov/Helvilette/issues/11))
+
+* New `--print-config` flag resolves the configuration, prints each value with its source,
+  and exits without starting the agent. Useful for day-0 bring-up and for validating a
+  config file in CI. ([#11](https://github.com/AlexanderSlokov/Helvilette/issues/11))
+
 ### Changed
+
+* **BREAKING — `nodeID` now defaults to the machine hostname** instead of the static
+  `agent-01`. A static default meant every node that reached it registered under the same
+  identity; this is what turned the config-key bug in #8 from one misconfigured node into a
+  fleet-wide identity collision. If the hostname cannot be determined the agent falls back
+  to `agent-unknown` and logs a warning.
+
+  **Action required:** any node that relied on the implicit `agent-01` — rather than setting
+  `nodeID` in its config file, `NODE_ID`, or `--node-id` — will register under a new identity
+  after upgrading. Set `nodeID` explicitly to pin it.
+  ([#11](https://github.com/AlexanderSlokov/Helvilette/issues/11))
+
+* `LoadConfig` now returns a third value, `ConfigProvenance`, recording which source supplied
+  each field. This is a source-level change for anyone calling it directly.
+  ([#11](https://github.com/AlexanderSlokov/Helvilette/issues/11))
+
 
 * **BREAKING — Agent configuration precedence.** The YAML config file now outranks
   environment variables. The effective order is **CLI flags > YAML config > environment

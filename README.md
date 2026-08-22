@@ -228,6 +228,33 @@ And then, start the agent with config file:
 ./bin/agent --config=/var/lib/helvilette/agent.yaml
 ```
 
+**Checking what the agent will actually run:**
+
+Because values arrive from four sources, `--print-config` resolves them and reports where each
+one came from, then exits without starting the agent. Use it during bring-up, or to validate a
+config file in CI:
+
+```console
+$ ./bin/agent --config=/var/lib/helvilette/agent.yaml --print-config
+othelaURL    = http://othela-server:8080/api/v1  source=config-file
+nodeID       = node-01                           source=config-file
+pollInterval = 5s                                source=default
+workspaceDir = /var/lib/helvilette/workspace     source=config-file
+labels.owner = sre                               source=env(AGENT_LABELS)
+labels.role  = edge-proxy                        source=config-file
+```
+
+The agent logs the same information at startup under the message `effective configuration`, so a
+node's behaviour can be explained from its logs without reconstructing the precedence rules from
+its systemd unit and environment. Set `HELVILETTE_DEV=1` for human-readable console output.
+
+**Node identity:**
+
+If `nodeID` is not set by any source, it defaults to the machine's hostname so that agents remain
+distinguishable. Setting it explicitly is still recommended — the hostname is a fallback, not an
+identity you control. Should the hostname be unavailable, the agent falls back to `agent-unknown`
+and logs a warning, since any static default makes every affected node register under one identity.
+
 ### Expected Workflow
 
 1. **Agent** starts and registers with Othela (sends its `nodeId` + `labels`).
