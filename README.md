@@ -181,6 +181,11 @@ Agents with matching labels (e.g., `role=edge-proxy`) will automatically pull an
 
 The Agent supports K8s-style configuration with the following priority: **CLI flags > YAML config > Environment variables > Defaults**.
 
+Note that the config file outranks environment variables, matching k3s. The file is an explicit,
+version-controlled artifact, so what you read there is what the agent runs — an ambient `OTHELA_URL`
+inherited from a systemd unit or container environment will not silently override it. See
+[ADR-0001](docs/informations/ADRs/ADR-0001.md) for the reasoning.
+
 **Using CLI flags:**
 
 ```bash
@@ -205,13 +210,17 @@ export AGENT_LABELS=role=edge-proxy,env=production
 
 ```yaml
 # /var/lib/helvilette/agent.yaml
-otherlaUrl: "http://othela-server:8080/api/v1"
-nodeId: "node-01"
+othelaURL: "http://othela-server:8080/api/v1"
+nodeID: "node-01"
 pollInterval: "5s"
+workspaceDir: "/var/lib/helvilette/workspace"
 labels:
   role: "edge-proxy"
   env: "production"
 ```
+
+Keys are matched exactly as written above. Unrecognised keys are rejected at startup rather
+than ignored, so a typo surfaces as an error instead of an agent silently running on defaults.
 
 And then, start the agent with config file:
 
