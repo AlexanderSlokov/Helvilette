@@ -27,6 +27,8 @@ Chuyển đổi từ việc Othela gửi PlaybookContent sang gửi Reference đ
 ### 3.2. Node Targeting & Label-Based Routing
 Phân phối Job dựa trên Node Labels và Registration.
 - [x] pkg/manifest package: Parse helvilette.yml thành Go structs.
+- [x] Manifest schema identity: apiVersion `helvilette.io/v1alpha1`, kind `PlaybookDeployment` (ADR-0002, issue #1).
+- [x] Manifest validation (issue #13): kiểm tra apiVersion, kind, và các field bắt buộc khi load. Manifest sai bị từ chối kèm thông báo nêu rõ field, giá trị sai và shape mong đợi, thay vì im lặng deploy cho không node nào.
 - [x] Agent labels config: Thêm Labels map[string]string vào AgentConfiguration (CLI --labels, YAML config, ENV AGENT_LABELS).
 - [x] Node Registration API: POST /api/v1/nodes/register. Agent gửi nodeID và labels, Othela lưu vào registry.
 - [x] Othela dispatcher update: handleSync đọc labels từ registry, match với nodeSelector từ manifest, trả về đúng job và extra_vars.
@@ -76,6 +78,7 @@ Sau khi hệ thống lõi hoạt động hoàn chỉnh, tiến hành các tính 
 ### 4.3. Health Probes (Systemd Liveness/Readiness)
 - [ ] Mở rộng pkg/manifest/types.go để parse probes section từ helvilette.yml.
 - [ ] Support livenessProbe và readinessProbe cho systemd services (K8s style).
+- [ ] Sau khi probes có types: bật `yaml.Decoder.KnownFields(true)` trong ParseFile để từ chối key lạ (xem ADR-0002, phần Follow-up work). Hiện chưa bật được vì probes và vault xuất hiện trong manifest mẫu mà chưa có struct tương ứng.
 - [ ] Agent định kỳ kiểm tra sức khỏe service (HTTP get, TCP socket, Exec) độc lập với vòng lặp của Ansible.
 
 ### 4.4. Vault / Secret Integration
@@ -100,3 +103,93 @@ Sau khi hệ thống lõi hoạt động hoàn chỉnh, tiến hành các tính 
 ### 5.2. Multi-tenant / Namespace Support
 - [ ] Thêm khái niệm Namespace để phân chia environment (Dev/Staging/Prod).
 - [ ] RBAC giới hạn quyền deploy.
+
+---
+
+## 6. Technical Debt
+
+Các hạng mục dưới đây phát hiện khi làm ADR-0002 và issue #13, chưa xử lý.
+Chưa mở issue riêng cho hạng mục nào, nên phần mô tả ở đây là nguồn context duy nhất.
+
+### 6.1. Node khớp nhiều nodeGroup thì chỉ nodeGroup đầu tiên được chạy
+
+Mức độ: cao. Đây là lỗi đúng nghĩa, không phải nợ kỹ thuật thuần tuý.
+
+`MatchNodeGroups` trả về mọi nodeGroup khớp, nhưng `handleSync` tại `cmd/othela/server.go:302`
+lấy `matches[0]` rồi `break`. Các group khớp còn lại bị bỏ im lặng, không log, không báo lỗi.
+
+Manifest e2e đang dính đúng trường hợp này: `standard-proxies` và `high-performance-proxies`
+trong `tests/e2e/data/playbooks/nginx-collection/helvilette.yml` có cùng
+`nodeSelector: role=edge-proxy`. Node nào mang label đó cũng chỉ nhận `standard-proxies`.
+Toàn bộ `high-performance-proxies`, gồm `systemd_memory_limit` và `enable_seccomp_runtime_default`,
+là cấu hình chết mà người vận hành không có cách nào biết.
+
+Cần quyết định ngữ nghĩa trước khi sửa code. Ba hướng:
+- Từ chối manifest có nhiều nodeGroup khớp chồng nhau, bắt `nodeSelector` phải loại trừ lẫn nhau.
+- Gộp `extra_vars` của các group khớp theo thứ tự khai báo, giống cách Ansible gộp vars.
+- Giữ nguyên first-match nhưng log WARN nêu tên các group bị bỏ.
+
+- [ ] Chọn ngữ nghĩa cho trường hợp nhiều nodeGroup cùng khớp một node.
+- [ ] Bổ sung validation hoặc log tương ứng vào `pkg/manifest` và `handleSync`.
+- [ ] Sửa manifest e2e để phản ánh đúng ngữ nghĩa đã chọn.
+
+### 6.2. Fallback HELV_TEST_REPO_URL thành code chết
+
+Mức độ: thấp.
+
+`cmd/othela/server.go:305-310` fallback sang biến môi trường `HELV_TEST_REPO_URL`, rồi sang một
+URL hardcode, khi `Manifest.Spec.Repo` rỗng. Từ issue #13, `spec.repo` là field bắt buộc nên
+manifest có repo rỗng bị từ chối ngay lúc load. Nhánh fallback không còn tới được với job sinh
+từ manifest. Đã ghi trong phần Consequences của ADR-0002.
+
+- [ ] Xoá nhánh fallback và biến `HELV_TEST_REPO_URL` khỏi `docker-compose.e2e.yaml` nếu không
+  còn nơi nào dùng.
+
+### 6.3. Manifest trong repo e2e lồng nhau đã lỗi thời so với working tree
+
+Mức độ: trung bình. Đây là bẫy dễ làm người sửa sau hiểu sai.
+
+`tests/e2e/data/playbooks/nginx-collection` là một git repo riêng nằm trong repo chính.
+Commit `12b7723` của nó chứa `helvilette.yml` theo định dạng cũ trước cả K8s-style
+(`name: nginx-stack`, `defaults:`, không có `apiVersion`). Bản K8s-style đang dùng chỉ tồn tại
+ở working tree, chưa từng được commit vào repo lồng đó.
+
+Hệ quả: `git-server` trong `docker-compose.e2e.yaml` phục vụ nội dung đã commit, còn Othela đọc
+manifest từ bind mount working tree (`docker-compose.e2e.yaml:24` và `:29`). Hai bên nhìn thấy hai
+file khác nhau. Hiện không gây lỗi vì agent chỉ cần `playbook.yml` từ bản clone, nhưng bất kỳ ai
+sửa manifest rồi cho rằng git-server phục vụ bản mới đều sẽ hiểu sai.
+
+- [ ] Commit manifest hiện tại vào repo lồng, hoặc ghi rõ trong README của thư mục e2e rằng
+  git-server phục vụ bản đã commit còn Othela đọc working tree.
+
+### 6.4. 12 file lệch gofmt
+
+Mức độ: thấp.
+
+`gofmt -l pkg/ cmd/` báo 12 file: `pkg/git/clone.go`, `pkg/playbook/loader_test.go`,
+`pkg/playbook/types.go`, `pkg/systemd/client.go`, `pkg/systemd/watcher.go`, `pkg/types/types.go`,
+`cmd/agent/main.go`, `cmd/agent/main_test.go`, `cmd/othela/cmd/root.go`, `cmd/othela/main.go`,
+`cmd/othela/server.go`, `cmd/othela/server_test.go`.
+
+Tình trạng này có từ trước issue #13. Chạy `make fmt` một lần sẽ dọn sạch, nhưng nên làm trong
+một commit riêng để diff không lẫn với thay đổi logic.
+
+- [ ] Chạy `make fmt`, commit riêng.
+- [ ] Thêm bước kiểm tra gofmt vào `.github/workflows/ci.yml` để không tái diễn.
+
+### 6.5. make test kéo theo e2e nên luôn đỏ, còn CI thì không chạy e2e
+
+Mức độ: trung bình.
+
+`Makefile:16` định nghĩa `test: go test ./...`, tức là bao gồm cả `tests/e2e`. Suite e2e dùng
+testcontainers, tự build `Dockerfile.othela` và `Dockerfile.agent` rồi dựng 4 container. Trên máy
+sạch cache, phần dựng này vượt quá timeout mặc định 10 phút của `go test`, nên `make test` kết
+thúc bằng `FAIL helvilette/tests/e2e 600s` kể cả khi mọi unit test đều xanh. Đã có target `make e2e`
+riêng dùng ginkgo với timeout rộng hơn, nên `test` không cần ôm e2e.
+
+Ở chiều ngược lại, `.github/workflows/ci.yml` chỉ chạy `go vet`, unit test và build. Không có
+bước nào chạy e2e. Nghĩa là đường dẫn end-to-end duy nhất, gồm việc Othela nạp `helvilette.yml`
+rồi dispatch job, không được kiểm tra tự động ở bất kỳ đâu.
+
+- [ ] Giới hạn `make test` còn `go test ./cmd/... ./pkg/...`, để e2e cho `make e2e`.
+- [ ] Thêm job e2e vào CI, hoặc ghi rõ trong README rằng e2e là bước chạy tay trước khi release.

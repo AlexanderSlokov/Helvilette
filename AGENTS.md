@@ -9,6 +9,23 @@
 3. Do not use emojis.
 4. Do not overuse bold, italic to highlight, except for keywords, concepts, file names, important names.
 
+### When detect a problem that need to be recorded as an Issue
+
+1. Gather information and discrible the problem. Need to be details and precise.
+Other AI Agents and the author need to understand the context.
+2. Call `gh issue create` command to create an issue.
+3. Record the issue number to the BACKLOG file. If not create issue, discrible the problem in BACKLOG file so other AI Agent can understand the context and take action.
+
+### After finish a task
+
+1. Check if any documentation need to be updated.
+2. Update the documentation. 
+3. Fire an issue torward repo `https://github.com/AlexanderSlokov/naughtian-website`,
+require to update documentation for Helvilette.
+3. Check if any tests need to be updated.
+4. Run tests available in `Makefile`.
+5. Update `CHANGELOG.md` file.
+
 ## 1. Code Guide
 
 ### Code style

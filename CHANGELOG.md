@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+* `helvilette.yml` is now validated when it is loaded. `apiVersion` and `kind` must match
+  exactly, and `metadata.name`, `spec.repo`, `spec.playbook`, a non-empty `spec.nodeGroups`,
+  and a non-empty `nodeSelector` on every group are required. Each rejection names the
+  offending field, its value, and the expected shape. Previously a manifest with a stale
+  schema or a misspelled key — `nodegroups` for `nodeGroups` — unmarshalled cleanly into an
+  empty manifest, matched no node, and left every agent receiving `204 No Content` with no
+  error and no log line pointing at the file. A rejected manifest is now logged at WARN
+  stating that its playbook will not be dispatched.
+  ([#13](https://github.com/AlexanderSlokov/Helvilette/issues/13))
+
 * The agent logs its resolved configuration at startup under the message
   `effective configuration`, naming the source of every value — `config-file`,
   `env(NODE_ID)`, `cli(--othela-url)`, `default`, or `default(hostname)`. Individual labels
@@ -20,6 +30,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   config file in CI. ([#11](https://github.com/AlexanderSlokov/Helvilette/issues/11))
 
 ### Changed
+
+* **BREAKING — manifest schema identity.** `helvilette.yml` now requires
+  `apiVersion: helvilette.io/v1alpha1` and `kind: PlaybookDeployment`, replacing the previous
+  `apps/v1` / `Cluster`. `apps/v1` is an occupied Kubernetes in-tree group and the domain-less
+  form is a 1.x holdover, not a pattern for new groups; projects file their own kinds under a
+  domain they own, as k3s does with `k3s.cattle.io` and `helm.cattle.io`. `v1alpha1` reflects
+  that `spec.vault` and `nodeGroups[].probes` are still declared but unparsed. `Cluster` became
+  `PlaybookDeployment` because the file declares a playbook rolled out to node groups, not a
+  cluster.
+
+  **Action required:** update `apiVersion` and `kind` in every `helvilette.yml`. A manifest on
+  the old identity is now rejected with a message naming both the found and expected values,
+  rather than silently deploying to nobody. See
+  [ADR-0002](docs/informations/ADRs/ADR-0002.md).
+  ([#1](https://github.com/AlexanderSlokov/Helvilette/issues/1),
+  [#13](https://github.com/AlexanderSlokov/Helvilette/issues/13))
 
 * **BREAKING — `nodeID` now defaults to the machine hostname** instead of the static
   `agent-01`. A static default meant every node that reached it registered under the same
