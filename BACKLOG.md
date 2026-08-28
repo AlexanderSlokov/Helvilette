@@ -109,11 +109,11 @@ Sau khi hệ thống lõi hoạt động hoàn chỉnh, tiến hành các tính 
 ## 6. Technical Debt
 
 Các hạng mục dưới đây phát hiện khi làm ADR-0002 và issue #13, chưa xử lý.
-Chưa mở issue riêng cho hạng mục nào, nên phần mô tả ở đây là nguồn context duy nhất.
+Chỉ mục 6.1 có issue riêng. Với các mục còn lại, phần mô tả ở đây là nguồn context duy nhất.
 
 ### 6.1. Node khớp nhiều nodeGroup thì chỉ nodeGroup đầu tiên được chạy
 
-Mức độ: cao. Đây là lỗi đúng nghĩa, không phải nợ kỹ thuật thuần tuý.
+Issue: #15. Mức độ: cao. Đây là lỗi đúng nghĩa, không phải nợ kỹ thuật thuần tuý.
 
 `MatchNodeGroups` trả về mọi nodeGroup khớp, nhưng `handleSync` tại `cmd/othela/server.go:302`
 lấy `matches[0]` rồi `break`. Các group khớp còn lại bị bỏ im lặng, không log, không báo lỗi.
