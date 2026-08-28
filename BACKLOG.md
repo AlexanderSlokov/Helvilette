@@ -176,3 +176,20 @@ một commit riêng để diff không lẫn với thay đổi logic.
 
 - [ ] Chạy `make fmt`, commit riêng.
 - [ ] Thêm bước kiểm tra gofmt vào `.github/workflows/ci.yml` để không tái diễn.
+
+### 6.5. make test kéo theo e2e nên luôn đỏ, còn CI thì không chạy e2e
+
+Mức độ: trung bình.
+
+`Makefile:16` định nghĩa `test: go test ./...`, tức là bao gồm cả `tests/e2e`. Suite e2e dùng
+testcontainers, tự build `Dockerfile.othela` và `Dockerfile.agent` rồi dựng 4 container. Trên máy
+sạch cache, phần dựng này vượt quá timeout mặc định 10 phút của `go test`, nên `make test` kết
+thúc bằng `FAIL helvilette/tests/e2e 600s` kể cả khi mọi unit test đều xanh. Đã có target `make e2e`
+riêng dùng ginkgo với timeout rộng hơn, nên `test` không cần ôm e2e.
+
+Ở chiều ngược lại, `.github/workflows/ci.yml` chỉ chạy `go vet`, unit test và build. Không có
+bước nào chạy e2e. Nghĩa là đường dẫn end-to-end duy nhất, gồm việc Othela nạp `helvilette.yml`
+rồi dispatch job, không được kiểm tra tự động ở bất kỳ đâu.
+
+- [ ] Giới hạn `make test` còn `go test ./cmd/... ./pkg/...`, để e2e cho `make e2e`.
+- [ ] Thêm job e2e vào CI, hoặc ghi rõ trong README rằng e2e là bước chạy tay trước khi release.
