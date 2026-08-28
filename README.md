@@ -152,8 +152,8 @@ Helvilette uses a declarative manifest (placed inside your Ansible playbook repo
 For example:
 
 ```yaml
-apiVersion: apps/v1
-kind: Cluster
+apiVersion: helvilette.io/v1alpha1
+kind: PlaybookDeployment
 metadata:
   name: "my-company-edge-proxy-fleet"
   labels:
@@ -176,6 +176,17 @@ spec:
 ```
 
 Agents with matching labels (e.g., `role=edge-proxy`) will automatically pull and execute the configured playbook. Agents with non-matching labels will receive no work, and chillax.
+
+The manifest is validated on load: `apiVersion` and `kind` must match exactly, and a manifest
+missing `metadata.name`, `spec.repo`, `spec.playbook`, or a usable `spec.nodeGroups` entry is
+rejected with an error naming the offending field. A rejected manifest is logged and its playbook
+is never dispatched, rather than quietly matching no node. The `helvilette.io` group and the
+`v1alpha1` level follow Kubernetes API group conventions — see
+[ADR-0002](docs/informations/ADRs/ADR-0002.md).
+
+Note that `spec.vault` and `nodeGroups[].probes` appear in the example manifests but are **not yet
+parsed or enforced** — they are tracked in the backlog under Vault / Secret Integration and Health
+Probes.
 
 ### Agent Configuration
 

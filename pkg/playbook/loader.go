@@ -121,7 +121,10 @@ func (l *Loader) loadManifest(dirName string, logger zerolog.Logger) *manifest.M
 		return m
 	}
 	if !os.IsNotExist(err) {
-		logger.Warn().Err(err).Str("manifest", manifestPath).Msg("failed to parse manifest")
+		// Loud on purpose: without a manifest the playbook matches no nodeSelector,
+		// so it goes silently undeployed unless the operator sees this line.
+		logger.Warn().Err(err).Str("manifest", manifestPath).
+			Msg("rejected manifest, playbook will not be dispatched to any node")
 	}
 	return nil
 }
@@ -164,4 +167,3 @@ func (l *Loader) GetByName(name string) (*Playbook, error) {
 func (l *Loader) BaseDir() string {
 	return l.baseDir
 }
-
