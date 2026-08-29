@@ -331,6 +331,34 @@ go install github.com/onsi/ginkgo/v2/ginkgo@latest
 make e2e
 ```
 
+### Test Layers
+
+Unit tests and end-to-end tests are deliberately separated. Unit tests need no Docker and
+complete in about a second; the E2E suite needs a running stack and takes minutes.
+
+```bash
+make test        # Unit tests: ./cmd/... and ./pkg/... . No Docker required.
+make fmt-check   # Verify gofmt without rewriting files. Same check CI runs.
+make e2e         # End-to-end suite. Requires the stack from `make up`.
+```
+
+`make test` covers `./cmd/...` and `./pkg/...` rather than `./...`, because `./...` pulls in
+the Ginkgo E2E suite, which hangs when no stack is running.
+
+### Cleaning Up After E2E Runs
+
+The E2E stack writes runtime state to `tests/e2e/data` and `data/`. To remove it:
+
+```bash
+make clean-e2e   # Tears down the stack and deletes generated state.
+```
+
+If you ran an older version of the stack, `tests/e2e/data/playbooks/server` may be owned by
+`root` and unreadable, which makes `go vet ./...` and `go list ./...` fail with
+`permission denied` before compiling anything. `make clean-e2e` clears this using a throwaway
+container, so no `sudo` is needed. Current stacks run Othela as your own UID and no longer
+create root-owned files.
+
 ## Contributing
 <!-- Template: https://github.com/cncf/project-template/blob/main/CONTRIBUTING.md -->
 
