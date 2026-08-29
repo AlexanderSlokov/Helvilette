@@ -1,195 +1,245 @@
 # Helvilette: AI Agent Backlog & Roadmap
 
-Tài liệu này tổng hợp roadmap và các hạng mục công việc (backlog) nhằm cung cấp lộ trình rõ ràng cho AI Agents hoặc contributors khi tham gia phát triển dự án.
+This document outlines the roadmap and backlog for AI Agents or contributors participating in the project's development.
 
-## Current State (Đã hoàn thành)
+## Current State (Completed)
 - BDD E2E Testing Framework (Ginkgo & Gomega).
 - Living Skeleton E2E (Agent pull & run Ansible).
-- Cấu trúc Server và Agent.
-- Ephemeral Testing Environment (Docker Compose với 1 Server + 3 Agents).
-- K8s-Style Configuration (Cobra CLI, YAML parser cho Agent config).
-- GitOps Playbook Distribution (Agent tự động clone/pull repository và chạy playbook từ Git nội bộ).
+- Server and Agent structure.
+- Ephemeral Testing Environment (Docker Compose with 1 Server + 3 Agents).
+- K8s-Style Configuration (Cobra CLI, YAML parser for Agent config).
+- GitOps Playbook Distribution (Agent automatically clones/pulls repository and runs playbook from local Git).
 - Node Targeting & Label-Based Routing (Agent registration, label matching, manifest parsing, extra_vars execution).
 
 ---
 
-## 3. High Priority Backlog (Must-Have cho bản Demo / Release tiếp theo)
+## 3. High Priority Backlog (Must-Have for next Demo / Release)
 
-Các hạng mục này là cốt lõi dựa trên định hướng Pivot, phải xong trước tiên.
+These items are core to the Pivot direction and must be completed first.
 
 ### 3.1. Phase 2: GitOps Playbook Distribution (Agent Clone/Pull)
-Chuyển đổi từ việc Othela gửi PlaybookContent sang gửi Reference để Agent tự clone từ Git.
-- [x] Job Struct Update: Cập nhật model Job thêm RepoURL, PlaybookPath, Version và loại bỏ PlaybookContent.
-- [x] Agent Git Package (pkg/git): Implement pkg/git/cache.go và pkg/git/clone.go.
-- [x] Agent Execution Logic Update: Cập nhật ExecutePlaybook kiểm tra repo cache -> clone/pull -> chạy ansible-playbook từ đường dẫn nội bộ.
-- [x] E2E/Integration Tests: Đảm bảo Othela gửi reference -> Agent pull thành công từ Gitea local và execute.
+Switch from Othela sending PlaybookContent to sending References for Agent to clone from Git.
+- [x] Job Struct Update: Update Job model with RepoURL, PlaybookPath, Version, and remove PlaybookContent.
+- [x] Agent Git Package (pkg/git): Implement pkg/git/cache.go and pkg/git/clone.go.
+- [x] Agent Execution Logic Update: Update ExecutePlaybook to check repo cache -> clone/pull -> run ansible-playbook from local path.
+- [x] E2E/Integration Tests: Ensure Othela sends reference -> Agent successfully pulls from local Gitea and executes.
 
 ### 3.2. Node Targeting & Label-Based Routing
-Phân phối Job dựa trên Node Labels và Registration.
-- [x] pkg/manifest package: Parse helvilette.yml thành Go structs.
-- [x] Manifest schema identity: apiVersion `helvilette.io/v1alpha1`, kind `PlaybookDeployment` (ADR-0002, issue #1).
-- [x] Manifest validation (issue #13): kiểm tra apiVersion, kind, và các field bắt buộc khi load. Manifest sai bị từ chối kèm thông báo nêu rõ field, giá trị sai và shape mong đợi, thay vì im lặng deploy cho không node nào.
-- [x] Agent labels config: Thêm Labels map[string]string vào AgentConfiguration (CLI --labels, YAML config, ENV AGENT_LABELS).
-- [x] Node Registration API: POST /api/v1/nodes/register. Agent gửi nodeID và labels, Othela lưu vào registry.
-- [x] Othela dispatcher update: handleSync đọc labels từ registry, match với nodeSelector từ manifest, trả về đúng job và extra_vars.
-- [x] Agent ExtraVars execution: Ghi extra_vars ra file JSON và append -e @file vào ansible-playbook command.
-- [x] Job struct update: Thêm ExtraVars map[string]string vào pkg/types.Job.
-- [x] Unit tests: Parser pkg/manifest và nodeSelector matching.
-- [x] E2E update: Agent khớp labels nhận job, agent không khớp nhận 204 No Content.
-- [x] Othela Debug Mode: Thêm cờ --log-level=debug, ẩn polling log khỏi mức INFO.
+Distribute Jobs based on Node Labels and Registration.
+- [x] pkg/manifest package: Parse helvilette.yml into Go structs.
+- [x] Manifest schema identity: apiVersion helvilette.io/v1alpha1, kind PlaybookDeployment.
+- [x] Manifest validation: Verify apiVersion, kind, and required fields upon loading. Reject invalid manifests with clear messages stating the invalid field, its value, and expected shape.
+- [x] Agent labels config: Add Labels map[string]string to AgentConfiguration (CLI --labels, YAML config, ENV AGENT_LABELS).
+- [x] Node Registration API: POST /api/v1/nodes/register. Agent sends nodeID and labels, Othela saves to registry.
+- [x] Othela dispatcher update: handleSync reads labels from registry, matches with nodeSelector from manifest, returns the correct job and extra_vars.
+- [x] Agent ExtraVars execution: Write extra_vars to a JSON file and append -e @file to ansible-playbook command.
+- [x] Job struct update: Add ExtraVars map[string]string to pkg/types.Job.
+- [x] Unit tests: Parser pkg/manifest and nodeSelector matching.
+- [x] E2E update: Agent matching labels receives job, unmatched agent receives 204 No Content.
+- [x] Othela Debug Mode: Add --log-level=debug flag, hide polling log from INFO level.
 
-### 3.3. Persistence Layer cho Othela (SQLite)
-Hiện tại Othela lưu trên memory. Cần cơ sở dữ liệu để ghi nhận lịch sử.
-- [x] Tích hợp SQLite driver (mattn/go-sqlite3, theo k3s/kine).
-- [x] Tách storage interface (pkg/storage): NodeStore, ReportStore.
+### 3.3. Persistence Layer for Othela (SQLite)
+Currently, Othela stores data in memory. A database is required to record history.
+- [x] Integrate SQLite driver (mattn/go-sqlite3, similar to k3s/kine).
+- [x] Separate storage interface (pkg/storage): NodeStore, ReportStore.
 - [x] Implement in-memory adapter (pkg/storage/memory.go).
-- [x] Implement SQLite adapter (pkg/storage/sqlite.go) cho Node Registry va Execution Reports.
-- [x] Inject SQLite vào Othela qua ServerConfig, DB path: {data-dir}/server/db/state.db.
-- [ ] Implement tables/models cho Job History (ghi lại job đã gửi cho agent nào, khi nào).
+- [x] Implement SQLite adapter (pkg/storage/sqlite.go) for Node Registry and Execution Reports.
+- [x] Inject SQLite into Othela via ServerConfig, DB path: {data-dir}/server/db/state.db.
+- [ ] Implement tables/models for Job History (record which job was sent to which agent, and when).
+- [ ] Design schema to store the previous run's state on Othela.
+- [ ] Job state must reside in SQLite, not in Othela's RAM. Ensure Othela can survive a mid-job restart (hot-patch requirement).
+- [ ] Ghost/orphan detection: Othela must detect ghosts (nodes in inventory but not existing) and orphans (nodes running but not in inventory).
 
-### 3.4. Security & Basic Authentication
-- [ ] Implement Pre-shared token / API key cho Agent ↔ Othela.
-- [ ] Othela endpoint middleware để verify token.
-- [ ] Agent cấu hình và gửi header Authorization/Token.
+### 3.4. Enroll Token & Agent Identity Lifecycle
+Agents register with Othela using a one-time enroll token and receive a long-term identity.
+- [ ] One-time enroll token: Othela generates token, agent calls home to register. Implement one-time use Edge Key for identity attachment.
+- [ ] Othela endpoint middleware to verify token for all Agent APIs.
+- [ ] Agent configures and sends Authorization header with the received token after enrollment.
+- [ ] Revoke and rotate agent identity after enrollment.
+- [ ] Handle stolen nodes: mechanism to revoke identity from Othela.
 
-### 3.5. State Awareness & Drift Detection
-- [ ] Cho phép Agent định kỳ chạy ansible-playbook --check (Drift mode).
-- [ ] So sánh state hiện tại với desired state. Nếu có drift, Agent báo cáo DriftDetected event về Othela.
+### 3.5. Working with systemd (Agent runtime)
+Helvilette uses systemd as its runtime to interface with the OS.
+- [ ] Systemd unit files: othela.service, helvilette-agent.service.
+- [ ] Configure Restart=on-failure, RestartSec, StartLimitBurst in the unit file.
+- [ ] Agent writes last_run_summary.json to the node's disk, enabling h8e status to run even if Othela is down.
+- [ ] Validate proper agent operation after systemd restart, stop, reload.
+- [ ] Ensure journalctl -u helvilette provides sufficient logs for diagnostics on the node.
 
-### 3.6. Production Readiness
+### 3.6. Reconciliation Loop (Drift Detection)
+Drift detection loop: poll + diff, level-triggered.
+- [ ] Implement reconciliation loop with 3 trigger sources: Git changes (poll), periodic resync (run ansible-playbook --check --diff), and manual operator trigger.
+- [ ] Cache previous check results for display purposes only.
+- [ ] Add random splay/jitter when polling to prevent fleet-wide thundering herd issues.
+- [ ] Enable Ansible fact cache with TTL shorter than the resync interval.
+- [ ] Compare current state with desired state. If drift occurs, Agent reports a DriftDetected event to Othela.
+
+### 3.7. Health Probes for managed services
+Probes are used to detect services that are running but malfunctioning.
+- [ ] Expand pkg/manifest/types.go to parse probes section from helvilette.yml.
+- [ ] Support liveness probe for systemd services (HTTP get, TCP socket, Exec).
+- [ ] Support gate condition (replacing "readiness") for rolling update sequencing.
+- [ ] Enable yaml.Decoder.KnownFields(true) in ParseFile after probes have types.
+- [ ] Agent periodically checks service health, independent of the Ansible loop.
+- [ ] Implement ONESHOT + halt pattern for remediation playbooks. Ensure operator remediation requires per-service opt-in with a reason and that playbooks have been dry-run before execution.
+- [ ] RestartFailureBackOff when remediation fails.
+
+### 3.8. Structured Logging (for humans and machines)
+Log rich, display poor. Store events as JSONL; display only what is necessary.
+- [ ] Write Ansible callback plugin for Helvilette Agent to output events as JSON lines.
+- [ ] Design output format for terminal using OX symbols: +, -, ~, ↻, ?.
+- [ ] Design structured JSON schema for machine consumption.
+- [ ] Parse callback events into OX symbols. Translate module names to machine changes (file path, unit name, package version).
+- [ ] Output ? for tasks that are not check-safe. Never hide tasks that cannot be reliably predicted.
+- [ ] Write summary.json on the node. Ensure agents do not report warnings or errors for unset configuration fields (e.g., unset log_sink).
+- [ ] Send summary to Othela for fleet-wide views. Only send full JSONL when explicitly requested.
+- [ ] Write a one-line summary to journald/syslog for every run.
+- [ ] Implement 3 log views: h8e logs <job> (default summary), h8e logs <job> --tasks (collapsed task list), and h8e logs <job> --json (raw JSONL). Unfold failing tasks automatically.
+
+### 3.9. Agent behavior when Othela is down
+- [ ] Decide whether the agent continues to run checks when disconnected from Othela.
+- [ ] If continuing: queue reports locally and flush when Othela recovers.
+- [ ] If halting: log the reason in last_run_summary.json, and h8e status must indicate that Othela is unreachable.
+
+### 3.10. Job Semantics
+- [ ] Jobs must have a unique ID. Agent writes "started job X" to disk before execution.
+- [ ] At-most-once semantics: on restart, agent recognizes an incomplete job and does not silently retry it.
+- [ ] Handle agent self-sabotage: if a playbook disrupts network connectivity, the agent must report the completed job status once the network recovers without losing data or retrying.
+- [ ] Incomplete job state: h8e status displays the paused state and incomplete job ID.
+
+### 3.11. Preflight / Preview
+- [ ] Implement preflight/preview command: h8e preview <node>.
+- [ ] Score preview reliability: show N/M predictable tasks and list non-check-safe tasks.
+- [ ] Add heuristic to flag destructive tasks (regex patterns for rm, dd, mkfs, etc.).
+- [ ] Configurable thresholds per repo in helvilette.yml.
+- [ ] Generate .previewed file bound to the node state hash and commit SHA. Reject apply if state changes.
+- [ ] Use a TTL lease instead of a lock for preview/apply states.
+
+### 3.12. h8e CLI -- Operator Experience (OX) Commands
+- [ ] h8e why <node>: run on node, read local state, explain what changed, who decided it, why, and rollback commands.
+- [ ] h8e pause --reason "...": pause agent on node, reason is mandatory.
+- [ ] h8e freeze --reason "...": freeze entire fleet from Othela.
+- [ ] h8e unfreeze: unfreeze fleet.
+- [ ] h8e fleet: overview of fleet status.
+- [ ] h8e apply <node|--group>: manual apply with preflight prompt.
+- [ ] h8e apply --force --reason "...": escape hatch with mandatory reason.
+- [ ] h8e backup / h8e restore <file>: native single-file backup and restore.
+- [ ] h8e tunnel <node>: open Chisel tunnel to node with auto-timeout.
+- [ ] h8e status: read last_run_summary.json on the node.
+- [ ] h8e sync now: immediately trigger reconciliation loop.
+- [ ] h8e uninstall: completely remove agent while leaving managed services running.
+
+### 3.13. Production Readiness
 - [x] Health check endpoints (/healthz, /readyz).
-- [x] Graceful shutdown handling cho Othela và Agent.
-- [ ] Systemd service files (othela.service, helvilette-agent.service).
+- [x] Graceful shutdown handling for Othela and Agent.
+- [ ] Add automated tests for error messages to ensure they always state the next action.
+- [ ] Add Testcontainers test for time-to-first-success (from installation command to first successful apply on a clean VM).
+
+### 3.14. helvilette.yml Constraints
+- [ ] Validate that helvilette.yml is optional and Othela runs with sane defaults without it.
+- [ ] Ensure the repo can still be run with standard ansible-playbook when helvilette.yml is present.
 
 ---
 
 ## 4. Medium Priority Backlog (Nice-to-Have / Post-MVP)
 
-Sau khi hệ thống lõi hoạt động hoàn chỉnh, tiến hành các tính năng bổ sung.
+### 4.1. Agent-Othela Protocol Versioning & Efficiency
+- [ ] Explicit version numbers in all protocol messages. Support backward compatibility for at least 1 minor version.
+- [ ] Implement ETag for long-poll with exponential backoff and jitter.
+- [ ] Implement fail-safe poll interval if all intervals are set to 0.
 
-### 4.1. Othela Playbook / Repo Management (Multi-repo support)
-- [ ] pkg/git/repo.go & watcher.go: Othela tự động sync/track các repos.
-- [ ] API Endpoints đăng ký, list, và manual sync Repos (POST /api/v1/repos).
+### 4.2. Chisel Socket Stream
+- [ ] Integrate Chisel client into agent. Implement ephemeral credentials for tunnels (e.g., closing after 5 minutes of inactivity).
+- [ ] Integrate Chisel server into Othela.
+- [ ] Fallback mechanism when Chisel tunnel breaks.
 
-### 4.2. Webhook Triggers
-- [ ] Othela lắng nghe Webhook (từ GitHub/Gitea/GitLab) khi có git push.
-- [ ] Khi nhận trigger, Othela lập tức notify/invalidate cache các Agents liên quan mà không phải đợi hết Poll Interval.
+### 4.3. Ansible Playbook & Bash Install/Uninstall Scripts
+- [ ] Bash install script (get.helvilette.io).
+- [ ] Ansible playbook for bootstrap.
+- [ ] Auto-generate uninstall script during installation.
+- [ ] Support non-interactive script execution via INSTALL_HELVILETTE_* environment variables.
+- [ ] CI test: h8e uninstall on node -> agent disappears cleanly, managed services keep running.
+- [ ] CI test: h8e backup -> destroy Othela -> h8e restore <file> -> agents auto-discover and history is intact.
 
-### 4.3. Health Probes (Systemd Liveness/Readiness)
-- [ ] Mở rộng pkg/manifest/types.go để parse probes section từ helvilette.yml.
-- [ ] Support livenessProbe và readinessProbe cho systemd services (K8s style).
-- [ ] Sau khi probes có types: bật `yaml.Decoder.KnownFields(true)` trong ParseFile để từ chối key lạ (xem ADR-0002, phần Follow-up work). Hiện chưa bật được vì probes và vault xuất hiện trong manifest mẫu mà chưa có struct tương ứng.
-- [ ] Agent định kỳ kiểm tra sức khỏe service (HTTP get, TCP socket, Exec) độc lập với vòng lặp của Ansible.
+### 4.4. Othela Playbook / Repo Management (Multi-repo support)
+- [ ] pkg/git/repo.go & watcher.go: Othela automatically syncs/tracks repositories.
+- [ ] API Endpoints to register, list, and manually sync Repos (POST /api/v1/repos).
 
-### 4.4. Vault / Secret Integration
-- [ ] Mở rộng pkg/manifest/types.go để parse vault section từ helvilette.yml.
-- [ ] Support type: exported (đọc secret từ ENV của Othela host).
-- [ ] Support type: hashicorp_vault (đọc secret từ HashiCorp Vault API).
-- [ ] Agent nhận vault password file path từ Job, inject vào ansible-playbook --vault-password-file.
+### 4.5. Webhook Triggers
+- [ ] Othela listens for Webhooks (from GitHub/Gitea/GitLab) on git push.
+- [ ] Invalidate cache and notify relevant Agents immediately upon trigger.
 
-### 4.5. Scheduled Playbook Runs
-- [ ] Hỗ trợ Cron-like schedule để tự động trigger job từ phía Othela thay vì chỉ chạy 1 lần.
+### 4.6. Vault / Secret Integration
+- [ ] Expand pkg/manifest/types.go to parse vault section from helvilette.yml.
+- [ ] Support exported type (read secret from Othela host ENV).
+- [ ] Support hashicorp_vault type (read secret from HashiCorp Vault API).
+- [ ] Agent receives vault password file path from Job and injects into ansible-playbook command.
+
+### 4.7. Scheduled Playbook Runs
+- [ ] Support Cron-like scheduling to trigger jobs from Othela.
+
+### 4.8. README Comparison Table
+- [ ] Write installation comparison table for README (AWX vs Helvilette). Include ansible-pull in the comparison.
+- [ ] Add maturity markers (feature status) to README.
 
 ---
 
 ## 5. Low Priority Backlog (Features for V1.x)
 
 ### 5.1. Dashboard UI (Web)
-- [ ] Danh sách Nodes với trạng thái (Status badges).
-- [ ] Trạng thái Job gần nhất.
-- [ ] Real-time log streaming qua WebSocket.
+- [ ] Node list with status badges.
+- [ ] Latest Job status.
+- [ ] Real-time log streaming via WebSocket.
 - [ ] Playbook catalog browser.
 
 ### 5.2. Multi-tenant / Namespace Support
-- [ ] Thêm khái niệm Namespace để phân chia environment (Dev/Staging/Prod).
-- [ ] RBAC giới hạn quyền deploy.
+- [ ] Add Namespace concept for environment segregation (Dev/Staging/Prod).
+- [ ] RBAC for deploy permissions.
+
+### 5.3. Open-core Boundary
+- [ ] Separate commercial code into its own repository from the beginning.
+- [ ] Document the free/paid boundary commitment (API and data export must never be paywalled).
+
+### 5.4. Contributor License Agreement (CLA)
+- [ ] Set up CLA before merging the first PR from external contributors.
 
 ---
 
 ## 6. Technical Debt
 
-Các hạng mục dưới đây phát hiện khi làm ADR-0002 và issue #13, chưa xử lý.
-Chỉ mục 6.1 có issue riêng. Với các mục còn lại, phần mô tả ở đây là nguồn context duy nhất.
+### 6.1. Nodes matching multiple nodeGroups only execute the first one
+Issue: #15
+- [ ] Decide semantics for multiple matching nodeGroups (reject overlapping selectors, merge extra_vars, or keep first-match but log a WARN).
+- [ ] Add validation or logging to pkg/manifest and handleSync.
+- [ ] Fix e2e manifest to reflect the chosen semantics.
 
-### 6.1. Node khớp nhiều nodeGroup thì chỉ nodeGroup đầu tiên được chạy
+### 6.2. Fallback HELV_TEST_REPO_URL is dead code
+- [ ] Remove fallback branch and HELV_TEST_REPO_URL variable from docker-compose.e2e.yaml if unused.
 
-Issue: #15. Mức độ: cao. Đây là lỗi đúng nghĩa, không phải nợ kỹ thuật thuần tuý.
+### 6.3. Nested e2e manifest is outdated compared to working tree
+- [ ] Commit the current manifest to the nested repo, or clarify in the e2e README that the git-server serves the committed version while Othela reads the working tree.
 
-`MatchNodeGroups` trả về mọi nodeGroup khớp, nhưng `handleSync` tại `cmd/othela/server.go:302`
-lấy `matches[0]` rồi `break`. Các group khớp còn lại bị bỏ im lặng, không log, không báo lỗi.
+### 6.4. 12 files fail gofmt
+- [ ] Run make fmt and create a dedicated commit.
+- [ ] Add gofmt check to .github/workflows/ci.yml.
 
-Manifest e2e đang dính đúng trường hợp này: `standard-proxies` và `high-performance-proxies`
-trong `tests/e2e/data/playbooks/nginx-collection/helvilette.yml` có cùng
-`nodeSelector: role=edge-proxy`. Node nào mang label đó cũng chỉ nhận `standard-proxies`.
-Toàn bộ `high-performance-proxies`, gồm `systemd_memory_limit` và `enable_seccomp_runtime_default`,
-là cấu hình chết mà người vận hành không có cách nào biết.
+### 6.5. make test includes e2e and times out
+- [ ] Limit make test to go test ./cmd/... ./pkg/... and reserve e2e for make e2e.
+- [ ] Add e2e job to CI, or document that e2e is a manual pre-release step.
 
-Cần quyết định ngữ nghĩa trước khi sửa code. Ba hướng:
-- Từ chối manifest có nhiều nodeGroup khớp chồng nhau, bắt `nodeSelector` phải loại trừ lẫn nhau.
-- Gộp `extra_vars` của các group khớp theo thứ tự khai báo, giống cách Ansible gộp vars.
-- Giữ nguyên first-match nhưng log WARN nêu tên các group bị bỏ.
+---
 
-- [ ] Chọn ngữ nghĩa cho trường hợp nhiều nodeGroup cùng khớp một node.
-- [ ] Bổ sung validation hoặc log tương ứng vào `pkg/manifest` và `handleSync`.
-- [ ] Sửa manifest e2e để phản ánh đúng ngữ nghĩa đã chọn.
+## 7. Testing & Graduation Criteria (1.0.0)
 
-### 6.2. Fallback HELV_TEST_REPO_URL thành code chết
+These are the rigorous testing milestones required for the 1.0.0 release.
 
-Mức độ: thấp.
+### 7.1. k3s-ansible Graduation Test
+Four failure-based runs to validate correct behavior during chaos:
+- [ ] Clean run: Preflight must honestly report unpredictable tasks.
+- [ ] Mid-job power failure: Agent must report incomplete state upon reboot, without silently retrying.
+- [ ] Mid-fleet playbook failure: Agent halts properly, allowing the operator to identify the failing line within 60 seconds without opening the repo.
+- [ ] Agent self-sabotage: Agent recovers from playbook-induced network loss and reports job results correctly.
 
-`cmd/othela/server.go:305-310` fallback sang biến môi trường `HELV_TEST_REPO_URL`, rồi sang một
-URL hardcode, khi `Manifest.Spec.Repo` rỗng. Từ issue #13, `spec.repo` là field bắt buộc nên
-manifest có repo rỗng bị từ chối ngay lúc load. Nhánh fallback không còn tới được với job sinh
-từ manifest. Đã ghi trong phần Consequences của ADR-0002.
-
-- [ ] Xoá nhánh fallback và biến `HELV_TEST_REPO_URL` khỏi `docker-compose.e2e.yaml` nếu không
-  còn nơi nào dùng.
-
-### 6.3. Manifest trong repo e2e lồng nhau đã lỗi thời so với working tree
-
-Mức độ: trung bình. Đây là bẫy dễ làm người sửa sau hiểu sai.
-
-`tests/e2e/data/playbooks/nginx-collection` là một git repo riêng nằm trong repo chính.
-Commit `12b7723` của nó chứa `helvilette.yml` theo định dạng cũ trước cả K8s-style
-(`name: nginx-stack`, `defaults:`, không có `apiVersion`). Bản K8s-style đang dùng chỉ tồn tại
-ở working tree, chưa từng được commit vào repo lồng đó.
-
-Hệ quả: `git-server` trong `docker-compose.e2e.yaml` phục vụ nội dung đã commit, còn Othela đọc
-manifest từ bind mount working tree (`docker-compose.e2e.yaml:24` và `:29`). Hai bên nhìn thấy hai
-file khác nhau. Hiện không gây lỗi vì agent chỉ cần `playbook.yml` từ bản clone, nhưng bất kỳ ai
-sửa manifest rồi cho rằng git-server phục vụ bản mới đều sẽ hiểu sai.
-
-- [ ] Commit manifest hiện tại vào repo lồng, hoặc ghi rõ trong README của thư mục e2e rằng
-  git-server phục vụ bản đã commit còn Othela đọc working tree.
-
-### 6.4. 12 file lệch gofmt
-
-Mức độ: thấp.
-
-`gofmt -l pkg/ cmd/` báo 12 file: `pkg/git/clone.go`, `pkg/playbook/loader_test.go`,
-`pkg/playbook/types.go`, `pkg/systemd/client.go`, `pkg/systemd/watcher.go`, `pkg/types/types.go`,
-`cmd/agent/main.go`, `cmd/agent/main_test.go`, `cmd/othela/cmd/root.go`, `cmd/othela/main.go`,
-`cmd/othela/server.go`, `cmd/othela/server_test.go`.
-
-Tình trạng này có từ trước issue #13. Chạy `make fmt` một lần sẽ dọn sạch, nhưng nên làm trong
-một commit riêng để diff không lẫn với thay đổi logic.
-
-- [ ] Chạy `make fmt`, commit riêng.
-- [ ] Thêm bước kiểm tra gofmt vào `.github/workflows/ci.yml` để không tái diễn.
-
-### 6.5. make test kéo theo e2e nên luôn đỏ, còn CI thì không chạy e2e
-
-Mức độ: trung bình.
-
-`Makefile:16` định nghĩa `test: go test ./...`, tức là bao gồm cả `tests/e2e`. Suite e2e dùng
-testcontainers, tự build `Dockerfile.othela` và `Dockerfile.agent` rồi dựng 4 container. Trên máy
-sạch cache, phần dựng này vượt quá timeout mặc định 10 phút của `go test`, nên `make test` kết
-thúc bằng `FAIL helvilette/tests/e2e 600s` kể cả khi mọi unit test đều xanh. Đã có target `make e2e`
-riêng dùng ginkgo với timeout rộng hơn, nên `test` không cần ôm e2e.
-
-Ở chiều ngược lại, `.github/workflows/ci.yml` chỉ chạy `go vet`, unit test và build. Không có
-bước nào chạy e2e. Nghĩa là đường dẫn end-to-end duy nhất, gồm việc Othela nạp `helvilette.yml`
-rồi dispatch job, không được kiểm tra tự động ở bất kỳ đâu.
-
-- [ ] Giới hạn `make test` còn `go test ./cmd/... ./pkg/...`, để e2e cho `make e2e`.
-- [ ] Thêm job e2e vào CI, hoặc ghi rõ trong README rằng e2e là bước chạy tay trước khi release.
+### 7.2. Concorde & Hot-patch Test
+- [ ] Implement hot-patch test: restart Othela while 50 agents are actively running jobs to ensure no jobs are lost.
+- [ ] Implement Concorde test framework: run a 500-node simulated fleet to evaluate incident response time window and system stability under stress.
