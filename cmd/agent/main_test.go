@@ -290,7 +290,7 @@ func TestLoadConfig_CLI_Overrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
-	
+
 	if config.OthelaURL != "http://cli:8080/api/v1" {
 		t.Errorf("expected http://cli:8080/api/v1, got %s", config.OthelaURL)
 	}

@@ -220,12 +220,42 @@ Issue: #15
 - [ ] Commit the current manifest to the nested repo, or clarify in the e2e README that the git-server serves the committed version while Othela reads the working tree.
 
 ### 6.4. 12 files fail gofmt
-- [ ] Run make fmt and create a dedicated commit.
-- [ ] Add gofmt check to .github/workflows/ci.yml.
+Issue: #17
+- [x] Run make fmt and create a dedicated commit.
+- [x] Add gofmt check to .github/workflows/ci.yml. Added as make fmt-check, so CI and local
+      runs share one definition of formatted.
 
 ### 6.5. make test includes e2e and times out
-- [ ] Limit make test to go test ./cmd/... ./pkg/... and reserve e2e for make e2e.
+Issue: #17
+- [x] Limit make test to go test ./cmd/... ./pkg/... and reserve e2e for make e2e.
+- [x] Fix container-created state that broke host tooling. Othela ran as root over the
+      tests/e2e/data bind mount, leaving tests/e2e/data/playbooks/server owned by root
+      mode 750 inside the module tree. go vet ./... and go list ./... failed with
+      permission denied before compiling. Othela now runs as the host UID, the path is
+      gitignored, and make clean-e2e removes leftovers from older stacks.
+- [x] Fix make up, make down, and make logs. They called docker compose with no -f, and
+      the repo has no default compose file, so all three were broken.
 - [ ] Add e2e job to CI, or document that e2e is a manual pre-release step.
+
+### 6.6. make e2e hardcodes a machine-specific Go SDK path
+Issue: #18
+- [ ] Remove /home/stella/sdk/go1.26.1/bin from the e2e target in Makefile.
+- [ ] Resolve ginkgo through the module toolchain so the suite runs under the version
+      pinned in go.mod.
+
+### 6.7. cmd/agent/main.go exceeds the file size limit
+CLAUDE.md sets a 500-line ceiling per file. cmd/agent/main.go is 708 lines and
+cmd/othela/server.go is 446. Both will grow further under sections 3.6 and 3.8.
+- [ ] Split cmd/agent/main.go by responsibility (config resolution, polling loop,
+      playbook execution, reporting).
+- [ ] Reassess cmd/othela/server.go before it crosses 500 lines.
+
+### 6.8. CI never ran cmd/agent tests
+Resolved as part of #17. Recorded because the gap existed undetected across several
+releases.
+- [x] CI ran go test ./cmd/othela/... and ./pkg/... separately, which never executed
+      ./cmd/agent/... despite its 552-line test file, and ran ./pkg/storage/... twice.
+      Collapsed into a single step covering ./cmd/... and ./pkg/....
 
 ---
 

@@ -29,6 +29,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and exits without starting the agent. Useful for day-0 bring-up and for validating a
   config file in CI. ([#11](https://github.com/AlexanderSlokov/Helvilette/issues/11))
 
+* New `make` targets for the development loop: `fmt-check` verifies gofmt without rewriting
+  files and is the same check CI runs, and `clean-e2e` tears down the e2e stack and removes
+  the runtime state it writes to `tests/e2e/data` and `data/`. Both are documented in the
+  README under Development Setup.
+  ([#17](https://github.com/AlexanderSlokov/Helvilette/issues/17))
+
 ### Changed
 
 * **BREAKING — manifest schema identity.** `helvilette.yml` now requires
@@ -81,6 +87,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ([#9](https://github.com/AlexanderSlokov/Helvilette/issues/9))
 
 ### Fixed
+
+* Host-side Go tooling no longer breaks after running the e2e stack. Othela bind-mounts
+  `tests/e2e/data` and ran as root, so it wrote its SQLite state back to the host as
+  `tests/e2e/data/playbooks/server`, owned by `root:root` mode 750. Because that path sits
+  inside the Go module tree, `go vet ./...` and `go list ./...` failed with
+  `permission denied` before compiling anything — including the exact `go vet ./...` that CI
+  runs. CI stayed green only because a fresh checkout never has the directory. Othela now
+  runs as the host UID, the path is gitignored, and `make clean-e2e` removes leftovers from
+  older stacks using a throwaway container rather than requiring sudo. Agents deliberately
+  remain root: they apt-install inside the container and write only to gitignored `./data`.
+  ([#17](https://github.com/AlexanderSlokov/Helvilette/issues/17))
+
+* `make test` no longer hangs. It ran `go test ./...`, which pulled in the ginkgo e2e suite
+  and did not complete within 120s without a running Docker stack. Unit-test targets are now
+  scoped to `./cmd/... ./pkg/...` and end-to-end stays in `make e2e`; a full unit run takes
+  0.9s. ([#17](https://github.com/AlexanderSlokov/Helvilette/issues/17))
+
+* `make up`, `make down`, and `make logs` now work. All three called `docker compose` with no
+  `-f`, and the repo has no default compose file, so Docker Compose had nothing to load.
+  ([#17](https://github.com/AlexanderSlokov/Helvilette/issues/17))
+
+* CI now runs the agent's tests. The pipeline ran `go test ./cmd/othela/...` and
+  `./pkg/...` as separate steps, which never executed `./cmd/agent/...` despite its 552-line
+  test file, and ran `./pkg/storage/...` twice. Collapsed into one step covering `./cmd/...`
+  and `./pkg/...`. ([#17](https://github.com/AlexanderSlokov/Helvilette/issues/17))
 
 * Unrecognised keys in the agent config file are now rejected at startup instead of being
   silently ignored. A misspelled key previously left the agent quietly running on defaults —

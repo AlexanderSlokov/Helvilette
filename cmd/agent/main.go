@@ -329,7 +329,7 @@ func NewAgent(config AgentConfiguration) *Agent {
 func (a *Agent) RegisterNode(ctx context.Context) error {
 	logger := log.WithComponent("agent").With().Str("node_id", a.config.NodeID).Logger()
 	url := fmt.Sprintf("%s/nodes/register", a.config.OthelaURL)
-	
+
 	reqBody := struct {
 		NodeID string            `json:"node_id"`
 		Labels map[string]string `json:"labels"`
@@ -337,9 +337,9 @@ func (a *Agent) RegisterNode(ctx context.Context) error {
 		NodeID: a.config.NodeID,
 		Labels: a.config.Labels,
 	}
-	
+
 	data, _ := json.Marshal(reqBody)
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -351,15 +351,15 @@ func (a *Agent) RegisterNode(ctx context.Context) error {
 				logger.Info().Msg("Successfully registered with Othela")
 				return nil
 			}
-			
+
 			status := "unknown"
 			if resp != nil {
 				status = resp.Status
 				resp.Body.Close()
 			}
-			
+
 			logger.Warn().Err(err).Str("status", status).Msg("Failed to register with Othela, retrying in 5s...")
-			
+
 			// Wait before retrying, but allow context cancellation
 			select {
 			case <-ctx.Done():
@@ -547,7 +547,7 @@ func (a *Agent) ProcessJob(job *Job) error {
 
 	// Execute the playbook
 	status, output := a.ExecutePlaybook(job)
-	
+
 	// Only consider the job processed if it didn't fail due to initial fetching
 	if status == "Success" {
 		a.lastJobID = job.JobID

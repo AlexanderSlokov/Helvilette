@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	port    int
-	dataDir string
+	port     int
+	dataDir  string
 	logLevel string
 )
 

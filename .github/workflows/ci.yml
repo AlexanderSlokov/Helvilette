@@ -35,23 +35,21 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      # Runs before the slower steps so a formatting-only failure reports fast.
+      # Shares the Makefile target so CI and local runs cannot disagree.
+      - name: Format check
+        run: make fmt-check
+
       - name: Vet
         run: go vet ./...
         env:
           CGO_ENABLED: "1"
 
-      - name: Unit tests -- Othela server
-        run: go test ./cmd/othela/... -v -count=1
-        env:
-          CGO_ENABLED: "1"
-
-      - name: Unit tests -- Storage (Memory + SQLite)
-        run: go test ./pkg/storage/... -v -count=1
-        env:
-          CGO_ENABLED: "1"
-
-      - name: Unit tests -- All packages
-        run: go test ./pkg/... -v -count=1
+      # Covers ./cmd/... and ./pkg/... in one step. The previous split ran
+      # ./cmd/othela/... and ./pkg/... separately, which silently left
+      # ./cmd/agent/... untested, and repeated ./pkg/storage/... twice.
+      - name: Unit tests
+        run: go test ./cmd/... ./pkg/... -v -count=1
         env:
           CGO_ENABLED: "1"
 
