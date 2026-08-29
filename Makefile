@@ -16,14 +16,6 @@ GO_PKGS := ./cmd/... ./pkg/...
 COMPOSE_FILE := docker-compose.e2e.yaml
 COMPOSE := docker compose -f $(COMPOSE_FILE)
 
-# Othela bind-mounts tests/e2e/data. Without these the container writes its
-# SQLite state back to the host as root, which then breaks host-side go
-# tooling. Exported so docker compose can interpolate them.
-HELV_UID := $(shell id -u)
-HELV_GID := $(shell id -g)
-export HELV_UID
-export HELV_GID
-
 # Default target
 all: build
 
@@ -83,13 +75,15 @@ clean:
 	rm -rf bin/
 	rm -f coverage.out coverage.html
 
-# Remove container-created state under the module tree.
+# Remove container-created state left by older stacks.
 #
-# Older stacks ran othela as root, leaving tests/e2e/data/playbooks/server
-# owned by root:root mode 750. The host user cannot read it, so `go vet ./...`
-# and `go list ./...` fail with "permission denied" before any code is
-# examined. Deleting it needs root, so borrow a container's root rather than
-# asking for sudo. Harmless to run when the directory is already gone.
+# Since ADR-0003 Othela writes its state to a named volume, so a current stack
+# creates nothing here. Stacks from before that change left
+# tests/e2e/data/playbooks/server owned by root:root mode 750, which the host
+# user cannot read, so `go vet ./...` and `go list ./...` failed with
+# "permission denied" before examining any code. Deleting it needs root, so
+# borrow a container's root rather than asking for sudo. Harmless to run when
+# the directories are already gone.
 clean-e2e:
 	$(COMPOSE) down -v --remove-orphans 2>/dev/null || true
 	@mkdir -p data

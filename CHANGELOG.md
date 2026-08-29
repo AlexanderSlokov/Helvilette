@@ -37,6 +37,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+* **BREAKING — `--data-dir` removed, replaced by `--playbook-dir` and `--state-dir`.** The old
+  flag named the directory Othela loads playbooks from, and also received the SQLite database at
+  `{data-dir}/server/db/state.db`. Read-only input and read-write state therefore shared a
+  directory, and in the e2e stack that directory is bind-mounted from inside the Go module tree.
+  Othela running as root wrote `tests/e2e/data/playbooks/server` back to the host as `root:root`
+  mode 750, and `go vet ./...` then failed with `permission denied` before compiling anything.
+  The same conflation is behind the two-sources-of-truth defect in BACKLOG 6.3, where the
+  e2e git-server serves the committed manifest while Othela reads the working tree.
+
+  `--playbook-dir` is read-only input, defaulting to `helvilette/othela/data/playbooks` — which
+  also corrects the misspelling in the previous default. `--state-dir` is writable, defaulting to
+  `/var/lib/helvilette/othela`, the FHS location the systemd units in BACKLOG 3.5 will need. The
+  database moves to `{state-dir}/db/state.db`.
+
+  Passing `--data-dir` now exits with an error naming both replacements and their defaults,
+  rather than being silently ignored. No deprecated alias is provided: the flag designated the
+  playbook directory while also holding state, so mapping it onto either replacement would be
+  wrong half the time. Rationale in
+  [ADR-0003](docs/informations/ADRs/ADR-0003.md).
+  ([#20](https://github.com/AlexanderSlokov/Helvilette/issues/20))
+
 * **BREAKING — manifest schema identity.** `helvilette.yml` now requires
   `apiVersion: helvilette.io/v1alpha1` and `kind: PlaybookDeployment`, replacing the previous
   `apps/v1` / `Cluster`. `apps/v1` is an occupied Kubernetes in-tree group and the domain-less
@@ -87,6 +108,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ([#9](https://github.com/AlexanderSlokov/Helvilette/issues/9))
 
 ### Fixed
+
+* The e2e git-server no longer installs git at container start. It ran
+  `apk add --no-cache git git-daemon` and the suite waited for its `Ready to rumble` log line,
+  so every run depended on a package download completing inside the startup deadline. It was
+  observed failing under load and passing on an idle host. Git is now baked into
+  `Dockerfile.gitserver`, and every readiness wait sets an explicit `WithStartupTimeout` instead
+  of relying on the default. ([#20](https://github.com/AlexanderSlokov/Helvilette/issues/20))
+
+* Removed `cmd/othela/cmd`, an unused `cobra init` scaffold. Nothing imported it, its `Run` only
+  printed "This is where the server startup logic will go", and it declared a third `--data-dir`
+  flag that would have survived the removal above and misled anyone grepping for it.
+  ([#20](https://github.com/AlexanderSlokov/Helvilette/issues/20))
 
 * Host-side Go tooling no longer breaks after running the e2e stack. Othela bind-mounts
   `tests/e2e/data` and ran as root, so it wrote its SQLite state back to the host as

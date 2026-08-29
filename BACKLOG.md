@@ -217,7 +217,14 @@ Issue: #15
 - [ ] Remove fallback branch and HELV_TEST_REPO_URL variable from docker-compose.e2e.yaml if unused.
 
 ### 6.3. Nested e2e manifest is outdated compared to working tree
-- [ ] Commit the current manifest to the nested repo, or clarify in the e2e README that the git-server serves the committed version while Othela reads the working tree.
+Issue: #20. ADR: ADR-0003.
+The git-server serves the committed manifest while Othela reads the working tree, so the two
+disagree whenever helvilette.yml is edited without committing. Root cause is that Othela treated
+a mutable directory as a versioned artifact.
+- [x] Mount the playbook directory read-only in both docker-compose.e2e.yaml and the
+      testcontainers suite, so nothing can write to it during a run.
+- [ ] Resolve playbooks on the Othela side by Git reference rather than by reading a local
+      directory, matching how the agent already works after 3.1. This closes the gap fully.
 
 ### 6.4. 12 files fail gofmt
 Issue: #17
@@ -236,6 +243,18 @@ Issue: #17
 - [x] Fix make up, make down, and make logs. They called docker compose with no -f, and
       the repo has no default compose file, so all three were broken.
 - [ ] Add e2e job to CI, or document that e2e is a manual pre-release step.
+
+### 6.9. Othela and Agent disagree on what a playbook is
+Issue: #20. ADR: ADR-0003. Partially resolved.
+The agent resolves playbooks by reference (repo, path, commit SHA) and caches them, per 3.1.
+Othela still reads them from a local directory. The directory is now read-only and separated
+from writable state, which removes the permission and mutability hazards, but the two components
+still describe the same artifact differently. Reconciliation in 3.6 needs them to agree.
+- [x] Split --data-dir into --playbook-dir (read-only) and --state-dir (writable).
+- [x] Move SQLite to {state-dir}/db/state.db and out of the playbook directory.
+- [x] Use a named volume for state in compose, so no writable path is bind-mounted into the
+      Go module tree.
+- [ ] Have Othela resolve playbooks by Git reference. Tracked jointly with 6.3.
 
 ### 6.6. make e2e hardcodes a machine-specific Go SDK path
 Issue: #18

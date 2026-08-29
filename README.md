@@ -287,8 +287,27 @@ Start the server listening on port 8080:
 
 ```bash
 cd /mnt/e/Helvilette
-/usr/local/go/bin/go run ./cmd/othela --port=8080 --data-dir=helvillette/othela/data/playbooks --log-level=info
+/usr/local/go/bin/go run ./cmd/othela \
+  --port=8080 \
+  --playbook-dir=helvilette/othela/data/playbooks \
+  --state-dir=./data/othela \
+  --log-level=info
 ```
+
+Othela separates its two directories, and never writes into the playbook one:
+
+| Flag | Contents | Access | Default |
+| --- | --- | --- | --- |
+| `--playbook-dir` | Playbooks and their `helvilette.yml` | Read-only | `helvilette/othela/data/playbooks` |
+| `--state-dir` | SQLite database and caches | Read-write | `/var/lib/helvilette/othela` |
+
+The default `--state-dir` needs root, which is right for a systemd-managed install
+but not for a development run, so the example above points it at a local path.
+Without write access Othela logs a warning and falls back to in-memory storage,
+losing state on restart.
+
+These replace the single `--data-dir` flag, which is removed. See
+[ADR-0003](docs/informations/ADRs/ADR-0003.md).
 
 #### Terminal 2: Helvilette Agent
 

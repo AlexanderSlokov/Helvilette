@@ -1,11 +1,13 @@
 services:
   git-server:
-    image: alpine:3.19
-    command: >
-      sh -c "apk add --no-cache git git-daemon && 
-      git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack"
+    # Built rather than pulled so git is present in the image. Installing it at
+    # container start made readiness depend on a package download; see ADR-0003.
+    build:
+      context: .
+      dockerfile: Dockerfile.gitserver
+    image: helvilette-gitserver:local
     volumes:
-      - ./tests/e2e/data/playbooks/nginx-collection:/git/nginx-collection
+      - ./tests/e2e/data/playbooks/nginx-collection:/git/nginx-collection:ro
     networks:
       - helvilette-net
     ports:
@@ -16,24 +18,27 @@ services:
       context: .
       dockerfile: Dockerfile.othela
     image: helvilette-othela:local
-    # Othela bind-mounts tests/e2e/data, which sits inside the Go module tree.
-    # Running as root made it write SQLite state back to the host as
-    # root:root mode 750, and `go vet ./...` then died with "permission
-    # denied" before compiling anything. Matching the host UID keeps that
-    # state readable. `make up` exports HELV_UID/HELV_GID; the defaults cover
-    # a bare `docker compose` call.
-    user: "${HELV_UID:-1000}:${HELV_GID:-1000}"
     ports:
       - "8080:8080"
     environment:
       - HELV_TEST_REPO_URL=git://git-server:9418/nginx-collection
     volumes:
-      - ./tests/e2e/data:/app/helvillette/othela/data
+      # Playbooks are read-only input. Mounted :ro so the container cannot write
+      # into the Go module tree even if it runs as root.
+      - ./tests/e2e/data/playbooks:/app/playbooks:ro
+      # State goes to a named volume, never a bind mount. This is what keeps the
+      # SQLite database out of the source tree; see ADR-0003.
+      - othela-state:/app/state
     networks:
       - helvilette-net
     depends_on:
       - git-server
-    command: ["./othela", "--port=8080", "--data-dir=helvillette/othela/data/playbooks", "--log-level=info"]
+    command:
+      - "./othela"
+      - "--port=8080"
+      - "--playbook-dir=/app/playbooks"
+      - "--state-dir=/app/state"
+      - "--log-level=info"
     restart: unless-stopped
 
   # Agents intentionally stay root: their playbooks apt-install and manage
@@ -83,3 +88,9 @@ services:
 networks:
   helvilette-net:
     driver: bridge
+
+volumes:
+  # Othela's SQLite state. A named volume rather than a bind mount, so nothing
+  # writable points into the repository. Removed by `make down` (-v) and by
+  # `make clean-e2e`.
+  othela-state:
