@@ -25,7 +25,7 @@ func TestSyncEndpoint(t *testing.T) {
 		PlaybookContent: "test playbook content",
 	}
 	server := NewServerWithJob(job)
-	
+
 	// Must register node first
 	registerNode(server, "agent-01", nil)
 
@@ -64,7 +64,7 @@ func TestSyncEndpoint_DifferentNodeIDs(t *testing.T) {
 	for _, nodeID := range nodeIDs {
 		// Must register node first
 		registerNode(server, nodeID, nil)
-		
+
 		t.Run(nodeID, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/api/v1/sync/"+nodeID, nil)
 			w := httptest.NewRecorder()
@@ -180,7 +180,7 @@ func TestSetCurrentJob(t *testing.T) {
 		PlaybookContent: "new content",
 	}
 	server.SetCurrentJob(newJob)
-	
+
 	// Must register node first
 	registerNode(server, "test-agent", nil)
 

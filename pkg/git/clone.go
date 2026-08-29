@@ -94,4 +94,3 @@ func pullLatest(wt *git.Worktree) error {
 	}
 	return nil
 }
-

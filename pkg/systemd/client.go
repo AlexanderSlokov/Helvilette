@@ -103,4 +103,3 @@ func toUnitState(u dbus.UnitStatus, observedAt time.Time) UnitState {
 		Timestamp:   observedAt,
 	}
 }
-

@@ -12,9 +12,9 @@ import (
 
 // Playbook represents metadata about an Ansible playbook or collection.
 type Playbook struct {
-	ID       string    `json:"id"`        // Unique ID (hash of path)
-	Name     string    `json:"name"`      // Directory or file name
-	Path     string    `json:"path"`      // Relative path from base dir
+	ID       string             `json:"id"`        // Unique ID (hash of path)
+	Name     string             `json:"name"`      // Directory or file name
+	Path     string             `json:"path"`      // Relative path from base dir
 	FullPath string             `json:"full_path"` // Absolute path to playbook.yml
 	ModTime  time.Time          `json:"mod_time"`  // Last modified time
 	Manifest *manifest.Manifest `json:"manifest,omitempty"`

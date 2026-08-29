@@ -30,8 +30,8 @@ type Server struct {
 	playbooks   []playbook.Playbook
 	nodeStore   storage.NodeStore
 	reportStore storage.ReportStore
-	mu          sync.RWMutex  // protects currentJob and playbooks only
-	ready       atomic.Bool   // readiness probe state
+	mu          sync.RWMutex // protects currentJob and playbooks only
+	ready       atomic.Bool  // readiness probe state
 	debugMode   bool
 }
 
@@ -262,9 +262,9 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.nodeStore.Register(req.NodeID, req.Labels)
-	
+
 	log.Printf("[REGISTER] Node %s registered with labels %v", req.NodeID, req.Labels)
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(req)
@@ -296,11 +296,11 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 		if pb.Manifest == nil {
 			continue
 		}
-		
+
 		matches := manifest.MatchNodeGroups(pb.Manifest, labels)
 		if len(matches) > 0 {
 			group := matches[0] // take the first match
-			
+
 			repoURL := pb.Manifest.Spec.Repo
 			if repoURL == "" {
 				repoURL = os.Getenv("HELV_TEST_REPO_URL")
@@ -330,7 +330,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		
+
 		if !hasManifests {
 			matchedJob = &s.currentJob
 		}

@@ -148,4 +148,3 @@ func determineEventType(activeState, subState string) string {
 		return "unknown"
 	}
 }
-
