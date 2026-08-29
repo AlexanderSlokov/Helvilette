@@ -1,0 +1,22 @@
+# Git daemon serving test playbook repositories over git:// for the e2e stack.
+#
+# Git is installed at build time, not at container start. The previous inline
+# `apk add --no-cache git git-daemon` made every e2e run depend on a package
+# download completing inside the container startup deadline: it failed under
+# load and passed on an idle host. Baking it in makes startup deterministic.
+# See docs/informations/ADRs/ADR-0003.md.
+FROM alpine:3.19
+
+RUN apk add --no-cache git git-daemon
+
+EXPOSE 9418
+
+# --export-all serves every repo under the base path without needing a
+# git-daemon-export-ok marker in each. Acceptable because this image exists
+# only to serve disposable test fixtures.
+CMD ["git", "daemon", \
+     "--verbose", \
+     "--export-all", \
+     "--base-path=/git", \
+     "--reuseaddr", \
+     "--enable=receive-pack"]

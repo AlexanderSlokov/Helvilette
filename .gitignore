@@ -43,3 +43,7 @@ go.work.sum
 /data/gitea
 /data
 /.claude
+
+# Binaries built at the repo root by `go build ./cmd/...` without -o
+/othela
+/agent
