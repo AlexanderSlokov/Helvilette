@@ -20,6 +20,8 @@ These items are core to the Pivot direction and must be completed first.
 ### 3.1. Phase 2: GitOps Playbook Distribution (Agent Clone/Pull)
 Switch from Othela sending PlaybookContent to sending References for Agent to clone from Git.
 - [x] Job Struct Update: Update Job model with RepoURL, PlaybookPath, Version, and remove PlaybookContent.
+      Correction: the removal did not land. PlaybookContent is still declared in pkg/types/types.go
+      and referenced only by tests. Tracked in issue #25.
 - [x] Agent Git Package (pkg/git): Implement pkg/git/cache.go and pkg/git/clone.go.
 - [x] Agent Execution Logic Update: Update ExecutePlaybook to check repo cache -> clone/pull -> run ansible-playbook from local path.
 - [x] E2E/Integration Tests: Ensure Othela sends reference -> Agent successfully pulls from local Gitea and executes.
@@ -44,9 +46,13 @@ Currently, Othela stores data in memory. A database is required to record histor
 - [x] Separate storage interface (pkg/storage): NodeStore, ReportStore.
 - [x] Implement in-memory adapter (pkg/storage/memory.go).
 - [x] Implement SQLite adapter (pkg/storage/sqlite.go) for Node Registry and Execution Reports.
-- [x] Inject SQLite into Othela via ServerConfig, DB path: {data-dir}/server/db/state.db.
+- [x] Inject SQLite into Othela via ServerConfig. DB path is now {state-dir}/db/state.db,
+      changed from {data-dir}/server/db/state.db by ADR-0003 and issue #20.
 - [ ] Implement tables/models for Job History (record which job was sent to which agent, and when).
-- [ ] Design schema to store the previous run's state on Othela.
+- [ ] Design schema to store the previous run's state on Othela. See issue #22: this is node status,
+      not a job log, and the two are different. reports.reported_at records when Othela received a
+      report, not when the node observed it, and types.Report carries no node-side timestamp at all.
+      Othela must be able to answer known, known-but-stale, and unknown.
 - [ ] Job state must reside in SQLite, not in Othela's RAM. Ensure Othela can survive a mid-job restart (hot-patch requirement).
 - [ ] Ghost/orphan detection: Othela must detect ghosts (nodes in inventory but not existing) and orphans (nodes running but not in inventory).
 
@@ -68,6 +74,13 @@ Helvilette uses systemd as its runtime to interface with the OS.
 
 ### 3.6. Reconciliation Loop (Drift Detection)
 Drift detection loop: poll + diff, level-triggered.
+
+Blocked by issues #22 and #23. Reconciliation drives observed state toward desired state, and
+neither half is defined yet. Issue #22 covers observed state: the manifest has Spec but no Status,
+and types.Report records an event rather than a state. Issue #23 covers desired state: Othela
+resolves playbooks from a mutable directory while the agent resolves them by commit SHA, so the
+comparison target moves. Kubernetes settled both before generalising the control loop; the
+reasoning is written up in #22.
 - [ ] Implement reconciliation loop with 3 trigger sources: Git changes (poll), periodic resync (run ansible-playbook --check --diff), and manual operator trigger.
 - [ ] Cache previous check results for display purposes only.
 - [ ] Add random splay/jitter when polling to prevent fleet-wide thundering herd issues.
@@ -225,6 +238,7 @@ a mutable directory as a versioned artifact.
       testcontainers suite, so nothing can write to it during a run.
 - [ ] Resolve playbooks on the Othela side by Git reference rather than by reading a local
       directory, matching how the agent already works after 3.1. This closes the gap fully.
+      Issue: #23.
 
 ### 6.4. 12 files fail gofmt
 Issue: #17
@@ -242,7 +256,9 @@ Issue: #17
       gitignored, and make clean-e2e removes leftovers from older stacks.
 - [x] Fix make up, make down, and make logs. They called docker compose with no -f, and
       the repo has no default compose file, so all three were broken.
-- [ ] Add e2e job to CI, or document that e2e is a manual pre-release step.
+- [ ] Add e2e job to CI, or document that e2e is a manual pre-release step. Issue: #24. Deferred
+      until the startup-race fix from #21 has proven stable over several runs, and requires image
+      layer caching, timeout-minutes, and resolving #18 first.
 
 ### 6.9. Othela and Agent disagree on what a playbook is
 Issue: #20. ADR: ADR-0003. Partially resolved.
@@ -254,7 +270,7 @@ still describe the same artifact differently. Reconciliation in 3.6 needs them t
 - [x] Move SQLite to {state-dir}/db/state.db and out of the playbook directory.
 - [x] Use a named volume for state in compose, so no writable path is bind-mounted into the
       Go module tree.
-- [ ] Have Othela resolve playbooks by Git reference. Tracked jointly with 6.3.
+- [ ] Have Othela resolve playbooks by Git reference. Tracked jointly with 6.3. Issue: #23.
 
 ### 6.6. make e2e hardcodes a machine-specific Go SDK path
 Issue: #18
