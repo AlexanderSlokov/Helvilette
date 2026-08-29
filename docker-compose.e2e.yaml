@@ -16,6 +16,13 @@ services:
       context: .
       dockerfile: Dockerfile.othela
     image: helvilette-othela:local
+    # Othela bind-mounts tests/e2e/data, which sits inside the Go module tree.
+    # Running as root made it write SQLite state back to the host as
+    # root:root mode 750, and `go vet ./...` then died with "permission
+    # denied" before compiling anything. Matching the host UID keeps that
+    # state readable. `make up` exports HELV_UID/HELV_GID; the defaults cover
+    # a bare `docker compose` call.
+    user: "${HELV_UID:-1000}:${HELV_GID:-1000}"
     ports:
       - "8080:8080"
     environment:
@@ -29,6 +36,10 @@ services:
     command: ["./othela", "--port=8080", "--data-dir=helvillette/othela/data/playbooks", "--log-level=info"]
     restart: unless-stopped
 
+  # Agents intentionally stay root: their playbooks apt-install and manage
+  # services inside the container. They only write to ./data/agent-*, which is
+  # gitignored and outside the Go module tree, so root ownership there is
+  # harmless. `make clean-e2e` removes it.
   node-1:
     build:
       context: .
