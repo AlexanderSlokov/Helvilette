@@ -275,7 +275,7 @@ still describe the same artifact differently. Reconciliation in 3.6 needs them t
 - [x] Move SQLite to {state-dir}/db/state.db and out of the playbook directory.
 - [x] Use a named volume for state in compose, so no writable path is bind-mounted into the
       Go module tree.
-- [ ] Have Othela resolve playbooks by Git reference. Tracked jointly with 6.3. Issue: #23.
+- [x] Have Othela resolve playbooks by Git reference. Tracked jointly with 6.3. Issue: #24.
 
 ### 6.6. make e2e hardcodes a machine-specific Go SDK path
 Issue: #18. Resolved.
