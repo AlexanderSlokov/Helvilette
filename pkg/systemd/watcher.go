@@ -36,78 +36,94 @@ func NewWatcher(client *Client, units []string) *Watcher {
 func (w *Watcher) Watch(ctx context.Context) (<-chan UnitEvent, error) {
 	eventChan := make(chan UnitEvent, 100)
 
-	// Subscribe to systemd signals
 	if err := w.client.conn.Subscribe(); err != nil {
 		return nil, err
 	}
 
-	// Set up the signal channel
-	signalChan, errChan := w.client.conn.SubscribeUnitsCustom(
-		time.Second, // interval for checking
-		0,           // buffer size
-		func(u1, u2 *dbus.UnitStatus) bool {
-			// Return true if unit changed
-			if u1 == nil || u2 == nil {
-				return true
-			}
-			return u1.ActiveState != u2.ActiveState || u1.SubState != u2.SubState
-		},
-		func(name string) bool {
-			// Filter: if watchUnits is empty, watch all; otherwise filter
-			if len(w.watchUnits) == 0 {
-				return true
-			}
-			return w.watchUnits[name]
-		},
-	)
-
-	go func() {
-		defer close(eventChan)
-
-		for {
-			select {
-			case <-ctx.Done():
-				w.logger.Info().Msg("watcher stopping due to context cancellation")
-				return
-
-			case changes := <-signalChan:
-				for name, status := range changes {
-					if status == nil {
-						continue
-					}
-
-					event := UnitEvent{
-						Unit: UnitState{
-							Name:        name,
-							LoadState:   status.LoadState,
-							ActiveState: status.ActiveState,
-							SubState:    status.SubState,
-							Timestamp:   time.Now(),
-						},
-						EventType: determineEventType(status.ActiveState, status.SubState),
-					}
-
-					w.logger.Info().
-						Str("unit", name).
-						Str("active_state", status.ActiveState).
-						Str("sub_state", status.SubState).
-						Str("event_type", event.EventType).
-						Msg("unit state changed")
-
-					select {
-					case eventChan <- event:
-					default:
-						w.logger.Warn().Str("unit", name).Msg("event channel full, dropping event")
-					}
-				}
-
-			case err := <-errChan:
-				w.logger.Error().Err(err).Msg("error from systemd subscription")
-			}
-		}
-	}()
+	signalChan, errChan := w.subscribeUnits()
+	go w.processEvents(ctx, signalChan, errChan, eventChan)
 
 	return eventChan, nil
+}
+
+func (w *Watcher) subscribeUnits() (<-chan map[string]*dbus.UnitStatus, <-chan error) {
+	return w.client.conn.SubscribeUnitsCustom(
+		time.Second,
+		0,
+		isStateChanged,
+		w.isUnitWatched,
+	)
+}
+
+func isStateChanged(u1, u2 *dbus.UnitStatus) bool {
+	if u1 == nil || u2 == nil {
+		return true
+	}
+	return u1.ActiveState != u2.ActiveState || u1.SubState != u2.SubState
+}
+
+func (w *Watcher) isUnitWatched(name string) bool {
+	if len(w.watchUnits) == 0 {
+		return true
+	}
+	return w.watchUnits[name]
+}
+
+func (w *Watcher) processEvents(ctx context.Context, signalChan <-chan map[string]*dbus.UnitStatus, errChan <-chan error, eventChan chan<- UnitEvent) {
+	defer close(eventChan)
+
+	for {
+		select {
+		case <-ctx.Done():
+			w.logger.Info().Msg("watcher stopping due to context cancellation")
+			return
+
+		case changes := <-signalChan:
+			w.handleChanges(changes, eventChan)
+
+		case err := <-errChan:
+			w.logger.Error().Err(err).Msg("error from systemd subscription")
+		}
+	}
+}
+
+func (w *Watcher) handleChanges(changes map[string]*dbus.UnitStatus, eventChan chan<- UnitEvent) {
+	for name, status := range changes {
+		if status == nil {
+			continue
+		}
+		w.publishEvent(name, status, eventChan)
+	}
+}
+
+func (w *Watcher) publishEvent(name string, status *dbus.UnitStatus, eventChan chan<- UnitEvent) {
+	event := createUnitEvent(name, status)
+
+	w.logger.Info().
+		Str("unit", name).
+		Str("active_state", status.ActiveState).
+		Str("sub_state", status.SubState).
+		Str("event_type", event.EventType).
+		Msg("unit state changed")
+
+	select {
+	case eventChan <- event:
+	default:
+		w.logger.Warn().Str("unit", name).Msg("event channel full, dropping event")
+	}
+}
+
+func createUnitEvent(name string, status *dbus.UnitStatus) UnitEvent {
+	return UnitEvent{
+		Unit: UnitState{
+			Name:        name,
+			LoadState:   status.LoadState,
+			ActiveState: status.ActiveState,
+			SubState:    status.SubState,
+			Timestamp:   time.Now(),
+		},
+		EventType: determineEventType(status.ActiveState, status.SubState),
+	}
 }
 
 // determineEventType infers event type from state

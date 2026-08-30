@@ -54,8 +54,8 @@ Helvilette clone gần như **1:1** bộ API conventions của K8s:
 
 ```yaml
 # helvilette.yml — nhìn giống K8s manifest đến mức uncanny
-apiVersion: apps/v1        # ← K8s apiVersion
-kind: Cluster              # ← K8s kind
+apiVersion: helvilette.io/v1alpha1  # ← K8s apiVersion, group riêng như k3s.cattle.io
+kind: PlaybookDeployment            # ← K8s kind
 metadata:                  # ← K8s metadata
   name: "..."
   namespace: "default"     # ← K8s namespace

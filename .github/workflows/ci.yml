@@ -1,0 +1,64 @@
+name: Othela CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'release/**'
+      - '*-rc-*'
+  pull_request:
+    branches:
+      - main
+      - develop
+      - 'release/**'
+      - '*-rc-*'
+
+jobs:
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install C toolchain (CGO for go-sqlite3)
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Download dependencies
+        run: go mod download
+
+      # Runs before the slower steps so a formatting-only failure reports fast.
+      # Shares the Makefile target so CI and local runs cannot disagree.
+      - name: Format check
+        run: make fmt-check
+
+      - name: Vet
+        run: go vet ./...
+        env:
+          CGO_ENABLED: "1"
+
+      # Covers ./cmd/... and ./pkg/... in one step. The previous split ran
+      # ./cmd/othela/... and ./pkg/... separately, which silently left
+      # ./cmd/agent/... untested, and repeated ./pkg/storage/... twice.
+      - name: Unit tests
+        run: go test ./cmd/... ./pkg/... -v -count=1
+        env:
+          CGO_ENABLED: "1"
+
+      - name: Build Othela binary
+        run: go build -o bin/othela ./cmd/othela
+        env:
+          CGO_ENABLED: "1"
+
+      - name: Build Agent binary
+        run: go build -o bin/agent ./cmd/agent
+        env:
+          CGO_ENABLED: "1"

@@ -1,7 +1,7 @@
 # nginx-collection/helvilette.yml
 # File này được xem là global inventory cho toàn bộ playbook,
-apiVersion: apps/v1
-kind: Cluster
+apiVersion: helvilette.io/v1alpha1
+kind: PlaybookDeployment
 metadata:
   name: "my-company-edge-proxy-fleet"
   # Mặc định, Helvilette luôn triển khai trong namespace "default".

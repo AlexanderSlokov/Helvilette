@@ -3,6 +3,7 @@ package systemd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-systemd/v22/dbus"
@@ -48,15 +49,8 @@ func (c *Client) GetUnitState(name string) (*UnitState, error) {
 		return nil, fmt.Errorf("unit %s not found", name)
 	}
 
-	u := units[0]
-	return &UnitState{
-		Name:        u.Name,
-		Description: u.Description,
-		LoadState:   u.LoadState,
-		ActiveState: u.ActiveState,
-		SubState:    u.SubState,
-		Timestamp:   time.Now(),
-	}, nil
+	state := toUnitState(units[0], time.Now())
+	return &state, nil
 }
 
 // ListUnits returns all loaded units
@@ -69,14 +63,7 @@ func (c *Client) ListUnits() ([]UnitState, error) {
 	result := make([]UnitState, len(units))
 	now := time.Now()
 	for i, u := range units {
-		result[i] = UnitState{
-			Name:        u.Name,
-			Description: u.Description,
-			LoadState:   u.LoadState,
-			ActiveState: u.ActiveState,
-			SubState:    u.SubState,
-			Timestamp:   now,
-		}
+		result[i] = toUnitState(u, now)
 	}
 	return result, nil
 }
@@ -90,7 +77,7 @@ func (c *Client) ListServiceUnits() ([]UnitState, error) {
 
 	var services []UnitState
 	for _, u := range units {
-		if len(u.Name) > 8 && u.Name[len(u.Name)-8:] == ".service" {
+		if strings.HasSuffix(u.Name, ".service") {
 			services = append(services, u)
 		}
 	}
@@ -104,4 +91,15 @@ func (c *Client) IsActive(name string) (bool, error) {
 		return false, err
 	}
 	return state.ActiveState == ActiveStateActive, nil
+}
+
+func toUnitState(u dbus.UnitStatus, observedAt time.Time) UnitState {
+	return UnitState{
+		Name:        u.Name,
+		Description: u.Description,
+		LoadState:   u.LoadState,
+		ActiveState: u.ActiveState,
+		SubState:    u.SubState,
+		Timestamp:   observedAt,
+	}
 }

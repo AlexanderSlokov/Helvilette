@@ -1,4 +1,4 @@
-# Design Proposal: Helvilette — Pull-Based Ansible Delivery & Drift Protection Layer
+# Design Proposal: Helvilette - Declarative Continuous Delivery for Ansible Playbooks
 
 **Authors**: Aleksandr S. Naughtian <dinhtandung.work@gmail.com>
 
@@ -17,11 +17,11 @@
 
 ## Summary/Abstract
 
-Helvilette is a pull-based delivery layer for Ansible — it turns Ansible playbooks into a self-operating system that runs without SSH, without CI/CD pipeline glue, and without anyone pressing Enter.
+Helvilette is a Declarative Continuous Delivery Tool for Ansible — it turns Ansible playbooks into a self-operating system that runs without SSH, without CI/CD pipeline glue, and without anyone pressing Enter.
 
 Helvilette is not an orchestrator, and will not try to compete with `Kubernetes`, `Nomad`, `Puppet`, or `SaltStack`. It operates at the OS/systemd layer - beneath all orchestrators - providing desired-state reconciliation for the 80% of infrastructure that will never run Kubernetes.
 
-> *"Use Ansible to install Helvilette once. Never need SSH for Ansible again."*
+> *"Use SSH for Ansible to install Helvilette once. Then never need SSH for Ansible again."*
 
 ## Background
 
@@ -42,7 +42,7 @@ Playbook ready
     ├─► Setup SSH keys in CI secrets
     ├─► Open port 22 (or hack a bastion host / VPN tunnel)
     ├─► Write CI pipeline YAML calling ansible-playbook
-    ├─► Debug why the CI runner can't SSH
+    ├─► Debug why the CI runner can't SSH into some nodes, while another nodes can
     ├─► 4 hours scratching your head and more 4 hours for a post-mortem.
     │
     ▼
@@ -78,12 +78,7 @@ Agent runs ansible-playbook
 Agent reports back to Othela API
 ```
 
-**Desired outcomes:**
-1. **Zero SSH keys** on any laptop or CI server
-2. **Continuous reconciliation** — agents poll and self-correct drift automatically
-3. **Zero learning curve** — engineers who know Ansible + K8s YAML can operate Helvilette immediately
-4. **Bus factor elimination** — infrastructure knowledge lives in Git repos + running agents, not in anyone's head
-5. **Infrastructure immune system** — Helvilette can heal services that orchestrators cannot heal themselves (including K8s control plane components)
+**Desired outcomes:** See `Goals` and `Non-Goals` sections.
 
 ### Prior discussion and links
 
@@ -92,15 +87,15 @@ Agent reports back to Othela API
 
 ## User Story
 
-### Primary Persona: "Tuấn" — Solo DevOps at a Vietnamese Startup
+### Example Persona: "Tuấn" — Solo DevOps at a Vietnamese Startup
 
 **Context:** Series A startup, 15-30 VMs across AWS, Proxmox, and budget VPS providers (Mắt Bão, BKNS, Viettel IDC). Team: 1 infrastructure engineer.
 
 **Current pain:**
 - `~/.ssh` contains 14+ root private keys on a personal laptop
 - Ansible playbooks exist in Git but only Tuấn knows how to run them
-- CI/CD pipeline for Ansible deployment is brittle and requires SSH exposure
-- Config drift goes undetected until something breaks
+- CI/CD pipeline for Ansible deployment is brittle and requires SSH exposure through all security measures
+- Config drift goes undetected until something breaks (no `Grafana Alloy`, because they don't gaive him enough time to tackle)
 - If Tuấn quits, infrastructure knowledge leaves with him
 
 **With Helvilette:**
@@ -182,15 +177,15 @@ Helvilette operates at the OS/systemd layer — beneath Kubernetes, beneath cont
 ```
 Layer 4:  ┌─ Kubernetes ───────────────────────────┐
           │  Pods, Deployments, Services           │
-          │  ❌ Cannot self-heal                   │
+          │  ❌ Cannot self-heal                    │
 Layer 3:  ├─ Container Runtime (containerd) ───────┤
-          │  ❌ Cannot self-restart                │
+          │  ❌ Cannot self-restart                 │
 Layer 2:  ├─ systemd ──────────────────────────────┤
           │  kubelet.service, containerd.service   │
           │  etcd.service, kube-apiserver.service  │
 Layer 1:  ├─ OS (Linux) ───────────────────────────┤
           │                                        │
-          │  🐈‍Helvilette Agent lives here.        │ 
+          │  🐈‍Helvilette Agent lives here.         │ 
           │  It is a systemd service.              │
           │  It can see EVERYTHING above.          │
           └────────────────────────────────────────┘
@@ -323,11 +318,8 @@ REST API:
 
 ### Cons
 
-1. **Nascent project** — solo developer, no production users yet beyond author's own infrastructure
-2. **Ansible dependency** — requires Ansible installed on every agent node
-3. **No persistence layer yet** — Othela currently holds state in memory (SQLite planned)
-4. **No authentication yet** — agent ↔ Othela communication currently unauthenticated
-5. **Pull-based latency** — changes propagate at poll interval speed, not instantly (webhook mitigates)
+1. **Ansible dependency** — requires Ansible installed on every agent node
+2. **Pull-based latency** — changes propagate at poll interval speed, not instantly (webhook mitigates)
 
 ## Risks and Mitigations
 
@@ -383,16 +375,16 @@ REST API:
 
 | Phase | Status | Description |
 |---|---|---|
-| 1.0 Living Skeleton | ✅ Complete | First E2E: Agent → Poll → Othela → Execute → Report |
-| 1.5 Ephemeral Lab | ✅ Complete | Docker Compose cluster (1 Othela + 3 Agents) |
-| 1.6 K8s-Style Config | ✅ Complete | Cobra CLI + YAML config (kubelet-style) |
-| 1.7 Git Server Mock | ✅ Complete | Gitea + git-seeder for E2E tests |
-| 2.0 GitOps Distribution | ✅ Complete | Agent git clone/pull, reference-based jobs |
-| 2.1 helvilette.yml Spec | ✅ Designed | Declarative config format with K8s API surface |
-| 3.0 Persistence | 🔲 Planned | SQLite for Othela state |
-| 3.1 Authentication | 🔲 Planned | API key / mTLS for agent ↔ Othela |
-| 3.2 Node Targeting | 🔲 Planned | Label-based job routing via nodeSelector |
-| 3.3 Drift Detection | 🔲 Planned | `--check` mode, DriftDetected events |
-| 3.4 Health Probes | 🔲 Planned | livenessProbe / readinessProbe for systemd services |
-| 4.0 Dashboard UI | 🔲 Planned | Wails v2 web interface |
-| 5.0 Production Readiness | 🔲 Planned | Graceful shutdown, health endpoints, systemd service files |
+| 1.0 Living Skeleton | Complete | First E2E: Agent → Poll → Othela → Execute → Report |
+| 1.5 Ephemeral Lab | Complete | Docker Compose cluster (1 Othela + 3 Agents) |
+| 1.6 K8s-Style Config | Complete | Cobra CLI + YAML config (kubelet-style) |
+| 1.7 Git Server Mock | Complete | Gitea + git-seeder for E2E tests |
+| 2.0 GitOps Distribution | Complete | Agent git clone/pull, reference-based jobs |
+| 2.1 helvilette.yml Spec | Designed | Declarative config format with K8s API surface |
+| 3.0 Persistence | Planned | SQLite for Othela state |
+| 3.1 Authentication | Planned | API key / mTLS for agent ↔ Othela |
+| 3.2 Node Targeting | Planned | Label-based job routing via nodeSelector |
+| 3.3 Drift Detection | Planned | `--check` mode, DriftDetected events |
+| 3.4 Health Probes | Planned | livenessProbe / readinessProbe for systemd services |
+| 4.0 Dashboard UI | Planned | Wails v2 web interface |
+| 5.0 Production Readiness | Planned | Graceful shutdown, health endpoints, systemd service files |

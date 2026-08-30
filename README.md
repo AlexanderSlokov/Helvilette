@@ -152,8 +152,8 @@ Helvilette uses a declarative manifest (placed inside your Ansible playbook repo
 For example:
 
 ```yaml
-apiVersion: apps/v1
-kind: Cluster
+apiVersion: helvilette.io/v1alpha1
+kind: PlaybookDeployment
 metadata:
   name: "my-company-edge-proxy-fleet"
   labels:
@@ -177,9 +177,25 @@ spec:
 
 Agents with matching labels (e.g., `role=edge-proxy`) will automatically pull and execute the configured playbook. Agents with non-matching labels will receive no work, and chillax.
 
+The manifest is validated on load: `apiVersion` and `kind` must match exactly, and a manifest
+missing `metadata.name`, `spec.repo`, `spec.playbook`, or a usable `spec.nodeGroups` entry is
+rejected with an error naming the offending field. A rejected manifest is logged and its playbook
+is never dispatched, rather than quietly matching no node. The `helvilette.io` group and the
+`v1alpha1` level follow Kubernetes API group conventions — see
+[ADR-0002](docs/informations/ADRs/ADR-0002.md).
+
+Note that `spec.vault` and `nodeGroups[].probes` appear in the example manifests but are **not yet
+parsed or enforced** — they are tracked in the backlog under Vault / Secret Integration and Health
+Probes.
+
 ### Agent Configuration
 
 The Agent supports K8s-style configuration with the following priority: **CLI flags > YAML config > Environment variables > Defaults**.
+
+Note that the config file outranks environment variables, matching k3s. The file is an explicit,
+version-controlled artifact, so what you read there is what the agent runs — an ambient `OTHELA_URL`
+inherited from a systemd unit or container environment will not silently override it. See
+[ADR-0001](docs/informations/ADRs/ADR-0001.md) for the reasoning.
 
 **Using CLI flags:**
 
@@ -205,19 +221,50 @@ export AGENT_LABELS=role=edge-proxy,env=production
 
 ```yaml
 # /var/lib/helvilette/agent.yaml
-otherlaUrl: "http://othela-server:8080/api/v1"
-nodeId: "node-01"
+othelaURL: "http://othela-server:8080/api/v1"
+nodeID: "node-01"
 pollInterval: "5s"
+workspaceDir: "/var/lib/helvilette/workspace"
 labels:
   role: "edge-proxy"
   env: "production"
 ```
+
+Keys are matched exactly as written above. Unrecognised keys are rejected at startup rather
+than ignored, so a typo surfaces as an error instead of an agent silently running on defaults.
 
 And then, start the agent with config file:
 
 ```bash
 ./bin/agent --config=/var/lib/helvilette/agent.yaml
 ```
+
+**Checking what the agent will actually run:**
+
+Because values arrive from four sources, `--print-config` resolves them and reports where each
+one came from, then exits without starting the agent. Use it during bring-up, or to validate a
+config file in CI:
+
+```console
+$ ./bin/agent --config=/var/lib/helvilette/agent.yaml --print-config
+othelaURL    = http://othela-server:8080/api/v1  source=config-file
+nodeID       = node-01                           source=config-file
+pollInterval = 5s                                source=default
+workspaceDir = /var/lib/helvilette/workspace     source=config-file
+labels.owner = sre                               source=env(AGENT_LABELS)
+labels.role  = edge-proxy                        source=config-file
+```
+
+The agent logs the same information at startup under the message `effective configuration`, so a
+node's behaviour can be explained from its logs without reconstructing the precedence rules from
+its systemd unit and environment. Set `HELVILETTE_DEV=1` for human-readable console output.
+
+**Node identity:**
+
+If `nodeID` is not set by any source, it defaults to the machine's hostname so that agents remain
+distinguishable. Setting it explicitly is still recommended — the hostname is a fallback, not an
+identity you control. Should the hostname be unavailable, the agent falls back to `agent-unknown`
+and logs a warning, since any static default makes every affected node register under one identity.
 
 ### Expected Workflow
 
@@ -240,8 +287,27 @@ Start the server listening on port 8080:
 
 ```bash
 cd /mnt/e/Helvilette
-/usr/local/go/bin/go run ./cmd/othela --port=8080 --data-dir=helvillette/othela/data/playbooks --log-level=info
+/usr/local/go/bin/go run ./cmd/othela \
+  --port=8080 \
+  --playbook-dir=helvilette/othela/data/playbooks \
+  --state-dir=./data/othela \
+  --log-level=info
 ```
+
+Othela separates its two directories, and never writes into the playbook one:
+
+| Flag | Contents | Access | Default |
+| --- | --- | --- | --- |
+| `--playbook-dir` | Playbooks and their `helvilette.yml` | Read-only | `helvilette/othela/data/playbooks` |
+| `--state-dir` | SQLite database and caches | Read-write | `/var/lib/helvilette/othela` |
+
+The default `--state-dir` needs root, which is right for a systemd-managed install
+but not for a development run, so the example above points it at a local path.
+Without write access Othela logs a warning and falls back to in-memory storage,
+losing state on restart.
+
+These replace the single `--data-dir` flag, which is removed. See
+[ADR-0003](docs/informations/ADRs/ADR-0003.md).
 
 #### Terminal 2: Helvilette Agent
 
@@ -283,6 +349,34 @@ go install github.com/onsi/ginkgo/v2/ginkgo@latest
 # Run the complete E2E test suite
 make e2e
 ```
+
+### Test Layers
+
+Unit tests and end-to-end tests are deliberately separated. Unit tests need no Docker and
+complete in about a second; the E2E suite needs a running stack and takes minutes.
+
+```bash
+make test        # Unit tests: ./cmd/... and ./pkg/... . No Docker required.
+make fmt-check   # Verify gofmt without rewriting files. Same check CI runs.
+make e2e         # End-to-end suite. Requires the stack from `make up`.
+```
+
+`make test` covers `./cmd/...` and `./pkg/...` rather than `./...`, because `./...` pulls in
+the Ginkgo E2E suite, which hangs when no stack is running.
+
+### Cleaning Up After E2E Runs
+
+The E2E stack writes runtime state to `tests/e2e/data` and `data/`. To remove it:
+
+```bash
+make clean-e2e   # Tears down the stack and deletes generated state.
+```
+
+If you ran an older version of the stack, `tests/e2e/data/playbooks/server` may be owned by
+`root` and unreadable, which makes `go vet ./...` and `go list ./...` fail with
+`permission denied` before compiling anything. `make clean-e2e` clears this using a throwaway
+container, so no `sudo` is needed. Current stacks run Othela as your own UID and no longer
+create root-owned files.
 
 ## Contributing
 <!-- Template: https://github.com/cncf/project-template/blob/main/CONTRIBUTING.md -->

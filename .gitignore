@@ -35,6 +35,15 @@ go.work.sum
 
 # Playbooks - ignore cloned external repos, keep our test collection
 /tests/e2e/data/playbooks/ansible-collection-hardening/
+
+# Othela runtime state written during e2e runs ({data-dir}/server/db/state.db).
+# Not a playbook despite living under playbooks/ -- see BACKLOG 6.5.
+/tests/e2e/data/playbooks/server/
 /bin
 /data/gitea
 /data
+/.claude
+
+# Binaries built at the repo root by `go build ./cmd/...` without -o
+/othela
+/agent

@@ -1,0 +1,96 @@
+services:
+  git-server:
+    # Built rather than pulled so git is present in the image. Installing it at
+    # container start made readiness depend on a package download; see ADR-0003.
+    build:
+      context: .
+      dockerfile: Dockerfile.gitserver
+    image: helvilette-gitserver:local
+    volumes:
+      - ./tests/e2e/data/playbooks/nginx-collection:/git/nginx-collection:ro
+    networks:
+      - helvilette-net
+    ports:
+      - "9418:9418"
+
+  othela:
+    build:
+      context: .
+      dockerfile: Dockerfile.othela
+    image: helvilette-othela:local
+    ports:
+      - "8080:8080"
+    environment:
+      - HELV_TEST_REPO_URL=git://git-server:9418/nginx-collection
+    volumes:
+      # Playbooks are read-only input. Mounted :ro so the container cannot write
+      # into the Go module tree even if it runs as root.
+      - ./tests/e2e/data/playbooks:/app/playbooks:ro
+      # State goes to a named volume, never a bind mount. This is what keeps the
+      # SQLite database out of the source tree; see ADR-0003.
+      - othela-state:/app/state
+    networks:
+      - helvilette-net
+    depends_on:
+      - git-server
+    command:
+      - "./othela"
+      - "--port=8080"
+      - "--playbook-dir=/app/playbooks"
+      - "--state-dir=/app/state"
+      - "--log-level=info"
+    restart: unless-stopped
+
+  # Agents intentionally stay root: their playbooks apt-install and manage
+  # services inside the container. They only write to ./data/agent-*, which is
+  # gitignored and outside the Go module tree, so root ownership there is
+  # harmless. `make clean-e2e` removes it.
+  node-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    image: helvilette-agent:local
+    environment:
+      - OTHELA_URL=http://othela:8080
+      - NODE_ID=node-1
+      - POLL_INTERVAL=5s
+      - WORKSPACE_DIR=/tmp/helvilette
+      - AGENT_LABELS=role=edge-proxy
+    volumes:
+      - ./data/agent-1:/tmp/helvilette
+    networks:
+      - helvilette-net
+    depends_on:
+      othela:
+        condition: service_started
+    restart: unless-stopped
+
+  node-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    image: helvilette-agent:local
+    environment:
+      - OTHELA_URL=http://othela:8080
+      - NODE_ID=node-2
+      - POLL_INTERVAL=5s
+      - WORKSPACE_DIR=/tmp/helvilette
+      - AGENT_LABELS=role=database
+    volumes:
+      - ./data/agent-2:/tmp/helvilette
+    networks:
+      - helvilette-net
+    depends_on:
+      othela:
+        condition: service_started
+    restart: unless-stopped
+
+networks:
+  helvilette-net:
+    driver: bridge
+
+volumes:
+  # Othela's SQLite state. A named volume rather than a bind mount, so nothing
+  # writable points into the repository. Removed by `make down` (-v) and by
+  # `make clean-e2e`.
+  othela-state:

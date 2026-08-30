@@ -14,11 +14,25 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+// startupTimeout bounds every container readiness wait. Set explicitly rather
+// than relying on the testcontainers default, so a slow host fails with a clear
+// deadline rather than an ambiguous one. See ADR-0003.
+const startupTimeout = 3 * time.Minute
+
+// repoRootPath resolves the repository root, used as the Docker build context
+// for every image the suite builds.
+func repoRootPath() string {
+	root, err := filepath.Abs("../../")
+	Expect(err).NotTo(HaveOccurred())
+	return root
+}
+
 var _ = Describe("GitOps Workflow", func() {
 	var ctx context.Context
 	var gitContainer testcontainers.Container
 	var othelaContainer testcontainers.Container
 	var agentContainer testcontainers.Container
+	var agent2Container testcontainers.Container
 	var network testcontainers.Network
 
 	BeforeEach(func() {
@@ -34,25 +48,32 @@ var _ = Describe("GitOps Workflow", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		// 1. Setup Git Server (alpine/git daemon)
-		absDataPath, err := filepath.Abs("./data/playbooks")
+		// 1. Setup Git Server (git daemon)
+		absPlaybookPath, err := filepath.Abs("./data/playbooks")
 		Expect(err).NotTo(HaveOccurred())
 
 		gitReq := testcontainers.ContainerRequest{
-			Image:        "alpine:3.19",
-			ExposedPorts: []string{"9418/tcp"},
-			Cmd: []string{
-				"sh", "-c",
-				"apk add --no-cache git git-daemon && git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack",
+			// Built from Dockerfile.gitserver rather than installing git at
+			// container start. The previous `apk add` made every run depend on a
+			// package download finishing inside the startup deadline, which failed
+			// under load and passed on an idle host. See ADR-0003.
+			FromDockerfile: testcontainers.FromDockerfile{
+				Context:    repoRootPath(),
+				Dockerfile: "Dockerfile.gitserver",
 			},
+			ExposedPorts: []string{"9418/tcp"},
 			Mounts: testcontainers.ContainerMounts{
-				testcontainers.BindMount(filepath.Join(absDataPath, "nginx-collection"), testcontainers.ContainerMountTarget("/git/nginx-collection")),
+				{
+					Source:   testcontainers.GenericBindMountSource{HostPath: filepath.Join(absPlaybookPath, "nginx-collection")},
+					Target:   testcontainers.ContainerMountTarget("/git/nginx-collection"),
+					ReadOnly: true,
+				},
 			},
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{
 				networkName: {"git-server"},
 			},
-			WaitingFor: wait.ForLog("Ready to rumble"),
+			WaitingFor: wait.ForLog("Ready to rumble").WithStartupTimeout(startupTimeout),
 		}
 		
 		gitContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -62,8 +83,7 @@ var _ = Describe("GitOps Workflow", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// 2. Setup Othela Control Plane
-		repoRoot, err := filepath.Abs("../../")
-		Expect(err).NotTo(HaveOccurred())
+		repoRoot := repoRootPath()
 
 		othelaReq := testcontainers.ContainerRequest{
 			FromDockerfile: testcontainers.FromDockerfile{
@@ -74,20 +94,29 @@ var _ = Describe("GitOps Workflow", func() {
 			Cmd: []string{
 				"./othela",
 				"--port=8080",
-				"--data-dir=/app/data/playbooks",
+				"--playbook-dir=/app/playbooks",
+				// State stays on the container filesystem. Bind-mounting it would
+				// put a writable path inside the Go module tree, which is what
+				// broke `go vet ./...` before ADR-0003.
+				"--state-dir=/app/state",
+				"--log-level=debug",
 			},
 			Env: map[string]string{
 				"HELV_TEST_REPO_URL": "git://git-server:9418/nginx-collection",
 			},
 			Mounts: testcontainers.ContainerMounts{
-				testcontainers.BindMount(absDataPath, testcontainers.ContainerMountTarget("/app/data/playbooks")),
+				{
+					Source:   testcontainers.GenericBindMountSource{HostPath: absPlaybookPath},
+					Target:   testcontainers.ContainerMountTarget("/app/playbooks"),
+					ReadOnly: true,
+				},
 			},
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{
 				networkName: {"othela"},
 			},
 			// Wait for HTTP endpoint to be ready
-			WaitingFor: wait.ForHTTP("/api/v1/playbooks").WithPort("8080/tcp"),
+			WaitingFor: wait.ForHTTP("/api/v1/playbooks").WithPort("8080/tcp").WithStartupTimeout(startupTimeout),
 		}
 
 		othelaContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -116,6 +145,7 @@ var _ = Describe("GitOps Workflow", func() {
 				"--node-id=agent-01",
 				"--poll-interval=5s",
 				"--workspace-dir=/tmp/helvilette",
+				"--labels=role=edge-proxy",
 			},
 		}
 		agentContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -123,10 +153,41 @@ var _ = Describe("GitOps Workflow", func() {
 			Started:          true,
 		})
 		Expect(err).NotTo(HaveOccurred())
+
+		// 4. Setup Agent 2 (Unmatched labels)
+		agentReq2 := testcontainers.ContainerRequest{
+			FromDockerfile: testcontainers.FromDockerfile{
+				Context:    repoRoot,
+				Dockerfile: "Dockerfile.agent",
+			},
+			Env: map[string]string{
+				"OTHELA_URL": "http://othela:8080",
+			},
+			Networks: []string{networkName},
+			NetworkAliases: map[string][]string{
+				networkName: {"agent-02"},
+			},
+			Cmd: []string{
+				"./agent",
+				"--othela-url=http://othela:8080",
+				"--node-id=agent-02",
+				"--poll-interval=5s",
+				"--workspace-dir=/tmp/helvilette",
+				"--labels=role=database",
+			},
+		}
+		agent2Container, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: agentReq2,
+			Started:          true,
+		})
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
 		// Cleanup containers
+		if agent2Container != nil {
+			agent2Container.Terminate(ctx)
+		}
 		if agentContainer != nil {
 			agentContainer.Terminate(ctx)
 		}
@@ -185,5 +246,45 @@ var _ = Describe("GitOps Workflow", func() {
 			logBytes, _ := io.ReadAll(logs)
 			return string(logBytes)
 		}, 3*time.Minute, 5*time.Second).Should(ContainSubstring("playbook execution"))
+
+		// Check othela logs to confirm it gracefully ignores agent 2
+		Eventually(func() string {
+			logs, err := othelaContainer.Logs(ctx)
+			if err != nil {
+				return ""
+			}
+			logBytes, _ := io.ReadAll(logs)
+			return string(logBytes)
+		}, 30*time.Second, 2*time.Second).Should(ContainSubstring("[DEBUG] Node agent-02 has labels"))
+	})
+
+	It("Should expose health and readiness endpoints on Othela", func() {
+		hostIP, err := othelaContainer.Host(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		mappedPort, err := othelaContainer.MappedPort(ctx, "8080/tcp")
+		Expect(err).NotTo(HaveOccurred())
+
+		baseURL := fmt.Sprintf("http://%s:%s", hostIP, mappedPort.Port())
+
+		// Test /healthz
+		resp, err := http.Get(baseURL + "/healthz")
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		bodyBytes, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(bodyBytes)).To(ContainSubstring(`"status":"ok"`))
+
+		// Test /readyz
+		resp2, err := http.Get(baseURL + "/readyz")
+		Expect(err).NotTo(HaveOccurred())
+		defer resp2.Body.Close()
+		Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+
+		bodyBytes2, err := io.ReadAll(resp2.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(bodyBytes2)).To(ContainSubstring(`"status":"ok"`))
 	})
 })
