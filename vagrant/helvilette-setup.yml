@@ -124,7 +124,7 @@
       apt:
         name:
           - docker.io
-          - docker-compose-v2
+          - docker-compose
         state: present
         update_cache: yes
 
@@ -153,7 +153,7 @@
                 - "2222:22"
 
     - name: Start Gitea
-      command: docker compose up -d
+      command: docker-compose up -d
       args:
         chdir: /opt/gitea
 
