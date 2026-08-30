@@ -17,7 +17,7 @@ up:
 	@echo "================================================================"
 
 setup-repo:
-	cd vagrant/baseline-repo && \
+	cd baseline-repo && \
 	git init && \
 	git add . && \
 	git commit -m "Initial commit for First Light test" && \
