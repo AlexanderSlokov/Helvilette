@@ -35,7 +35,9 @@ type Server struct {
 	debugMode   bool
 }
 
-// NewServer creates a new Othela server with default configuration
+// NewServer creates a new Othela server with default configuration.
+// The server starts with no default job; dispatch is driven entirely by
+// manifest matching in handleSync.
 func NewServer() *Server {
 	s := &Server{
 		router:      mux.NewRouter(),
@@ -43,27 +45,12 @@ func NewServer() *Server {
 		reportStore: storage.NewMemoryReportStore(),
 	}
 	s.ready.Store(true)
-
-	// Initialize mock job
-	s.currentJob = Job{
-		JobID: "job-" + fmt.Sprintf("%d", time.Now().Unix()),
-		PlaybookContent: `
-- name: Helvilette Sanity Check
-  hosts: localhost
-  connection: local
-  gather_facts: no
-  tasks:
-    - name: Say Hello
-      debug:
-        msg: "Hello Wunjo! This is Helvilette Othela speaking."
-`,
-	}
-
 	s.setupRoutes()
 	return s
 }
 
-// NewServerWithLoader creates a new Othela server with a playbook loader
+// NewServerWithLoader creates a new Othela server with a playbook loader.
+// Playbooks are scanned for manifest matching; no fallback job is created.
 func NewServerWithLoader(loader *playbook.Loader) *Server {
 	s := &Server{
 		router:      mux.NewRouter(),
@@ -77,42 +64,6 @@ func NewServerWithLoader(loader *playbook.Loader) *Server {
 	playbooks, err := loader.Scan()
 	if err == nil {
 		s.playbooks = playbooks
-	}
-
-	// Try to load first available playbook as fallback
-	if err == nil && len(playbooks) > 0 {
-		content, err := loader.Load(playbooks[0].ID)
-		if err == nil {
-			repoURL := os.Getenv("HELV_TEST_REPO_URL")
-			if repoURL == "" {
-				repoURL = "http://git-server:3000/helvilette/nginx-collection.git"
-			}
-			s.currentJob = Job{
-				JobID:           "job-" + playbooks[0].ID,
-				RepoURL:         repoURL,
-				Version:         "main",
-				PlaybookPath:    "playbook.yml",
-				PlaybookContent: content, // fallback
-			}
-			log.Printf("[LOADER] Mocked GitOps Job with RepoURL: %s", s.currentJob.RepoURL)
-		}
-	}
-
-	// Fallback to mock job if no playbooks found
-	if s.currentJob.JobID == "" {
-		s.currentJob = Job{
-			JobID: "job-" + fmt.Sprintf("%d", time.Now().Unix()),
-			PlaybookContent: `
-- name: Helvilette Fallback Job
-  hosts: localhost
-  connection: local
-  gather_facts: no
-  tasks:
-    - name: No playbooks found
-      debug:
-        msg: "No playbooks available in data/playbooks/"
-`,
-		}
 	}
 
 	s.setupRoutes()
@@ -162,45 +113,11 @@ func NewServerWithConfig(cfg ServerConfig) *Server {
 	}
 	s.ready.Store(true)
 
-	// If loader is provided, scan playbooks (same logic as NewServerWithLoader)
+	// If loader is provided, scan playbooks for manifest matching
 	if cfg.Loader != nil {
 		playbooks, err := cfg.Loader.Scan()
 		if err == nil {
 			s.playbooks = playbooks
-		}
-
-		if err == nil && len(playbooks) > 0 {
-			content, loadErr := cfg.Loader.Load(playbooks[0].ID)
-			if loadErr == nil {
-				repoURL := os.Getenv("HELV_TEST_REPO_URL")
-				if repoURL == "" {
-					repoURL = "http://git-server:3000/helvilette/nginx-collection.git"
-				}
-				s.currentJob = Job{
-					JobID:           "job-" + playbooks[0].ID,
-					RepoURL:         repoURL,
-					Version:         "main",
-					PlaybookPath:    "playbook.yml",
-					PlaybookContent: content,
-				}
-				log.Printf("[LOADER] Mocked GitOps Job with RepoURL: %s", s.currentJob.RepoURL)
-			}
-		}
-
-		if s.currentJob.JobID == "" {
-			s.currentJob = Job{
-				JobID: "job-" + fmt.Sprintf("%d", time.Now().Unix()),
-				PlaybookContent: `
-- name: Helvilette Fallback Job
-  hosts: localhost
-  connection: local
-  gather_facts: no
-  tasks:
-    - name: No playbooks found
-      debug:
-        msg: "No playbooks available in data/playbooks/"
-`,
-			}
 		}
 	}
 

@@ -470,17 +470,14 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 			Str("work_dir", workDir).
 			Msg("executing playbook from source path")
 	} else {
-		// Fallback: write content to workspace file
-		playbookFile = filepath.Join(a.config.WorkspaceDir, fmt.Sprintf("helvilette_job_%s.yml", job.JobID))
-		workDir = a.config.WorkspaceDir
-		if err := os.WriteFile(playbookFile, []byte(job.PlaybookContent), 0644); err != nil {
-			logger.Error().Err(err).Str("job_id", job.JobID).Msg("failed to write playbook to workspace")
-			return "Failed", []byte(fmt.Sprintf(`{"error": "Failed to write playbook: %v"}`, err))
-		}
-		logger.Info().
-			Str("job_id", job.JobID).
-			Str("temp_file", playbookFile).
-			Msg("executing playbook from workspace file")
+		// Neither RepoURL nor PlaybookPath — the job is undeliverable.
+		// Before issue #25 this branch wrote PlaybookContent to a temp file,
+		// but inline content delivery has been removed from the wire format.
+		logger.Error().Str("job_id", job.JobID).Msg("job has neither repo_url nor playbook_path")
+		b, _ := json.Marshal(map[string]string{
+			"error": fmt.Sprintf("job %q has neither repo_url nor playbook_path; inline content delivery is no longer supported", job.JobID),
+		})
+		return "Failed", b
 	}
 
 	cmd := exec.Command("ansible-playbook", "-i", "localhost,", "-c", "local", playbookFile)
