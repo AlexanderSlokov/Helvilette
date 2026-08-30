@@ -399,6 +399,40 @@ func (a *Agent) Poll() (*Job, error) {
 	return &job, nil
 }
 
+// statusFilePath returns the path to the node's local status file
+func (a *Agent) statusFilePath() string {
+	return filepath.Join(a.config.WorkspaceDir, "last_run_summary.json")
+}
+
+// readStatus reads the last persisted status from disk
+func (a *Agent) readStatus() (*types.NodeStatus, error) {
+	data, err := os.ReadFile(a.statusFilePath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var status types.NodeStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+// writeStatus persists the node's current status to disk
+func (a *Agent) writeStatus(status types.NodeStatus) error {
+	data, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		return err
+	}
+	// Ensure workspace exists
+	if err := os.MkdirAll(a.config.WorkspaceDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(a.statusFilePath(), data, 0644)
+}
+
 // SendReport sends an execution report to Othela
 func (a *Agent) SendReport(report Report) error {
 	url := fmt.Sprintf("%s/report", a.config.OthelaURL)
@@ -542,6 +576,17 @@ func (a *Agent) ProcessJob(job *Job) error {
 		Bool("has_path", job.PlaybookPath != "").
 		Msg("processing new job")
 
+	// 1. Write InProgress status to disk BEFORE executing
+	nodeStatus := types.NodeStatus{
+		JobID:     job.JobID,
+		CommitSHA: job.Version,
+		Status:    "InProgress",
+		AppliedAt: time.Now(),
+	}
+	if err := a.writeStatus(nodeStatus); err != nil {
+		logger.Error().Err(err).Msg("failed to write initial status to disk")
+	}
+
 	// Execute the playbook
 	status, output := a.ExecutePlaybook(job)
 
@@ -550,12 +595,20 @@ func (a *Agent) ProcessJob(job *Job) error {
 		a.lastJobID = job.JobID
 	}
 
+	// 2. Update status AFTER execution
+	nodeStatus.Status = status
+	if err := a.writeStatus(nodeStatus); err != nil {
+		logger.Error().Err(err).Msg("failed to write final status to disk")
+	}
+
 	// Send report
 	report := Report{
-		NodeID:   a.config.NodeID,
-		JobID:    job.JobID,
-		Status:   status,
-		TaskLogs: json.RawMessage(output),
+		NodeID:     a.config.NodeID,
+		JobID:      job.JobID,
+		Status:     status,
+		TaskLogs:   json.RawMessage(output),
+		ObservedAt: time.Now(),
+		NodeStatus: nodeStatus,
 	}
 
 	logger.Info().
@@ -580,6 +633,36 @@ func (a *Agent) Run(ctx context.Context) error {
 	// First register the node
 	if err := a.RegisterNode(ctx); err != nil {
 		return fmt.Errorf("failed to register node: %w", err)
+	}
+
+	// Check for interrupted jobs
+	lastStatus, err := a.readStatus()
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to read previous status")
+	} else if lastStatus != nil && lastStatus.Status == "InProgress" {
+		logger.Warn().Str("job_id", lastStatus.JobID).Msg("detected interrupted job, reporting failure")
+		
+		lastStatus.Status = "Failed (Interrupted)"
+		if err := a.writeStatus(*lastStatus); err != nil {
+			logger.Error().Err(err).Msg("failed to update status of interrupted job")
+		}
+
+		failReport := Report{
+			NodeID:     a.config.NodeID,
+			JobID:      lastStatus.JobID,
+			Status:     "Failed",
+			TaskLogs:   json.RawMessage(`{"error": "job interrupted by agent reboot/disconnect"}`),
+			ObservedAt: time.Now(),
+			NodeStatus: *lastStatus,
+		}
+		
+		if err := a.SendReport(failReport); err != nil {
+			logger.Error().Err(err).Msg("failed to send report for interrupted job")
+		} else {
+			a.lastJobID = lastStatus.JobID
+		}
+	} else if lastStatus != nil {
+		a.lastJobID = lastStatus.JobID
 	}
 
 	// Initialize systemd client

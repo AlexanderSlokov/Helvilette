@@ -4,7 +4,21 @@
 // storage backend can be swapped without touching HTTP handler code.
 package storage
 
-import "helvilette/pkg/types"
+import (
+	"time"
+
+	"helvilette/pkg/types"
+)
+
+// Node represents a registered agent node in Othela's registry.
+type Node struct {
+	NodeID     string            `json:"node_id"`
+	Labels     map[string]string `json:"labels"`
+	Registered time.Time         `json:"registered"`
+	LastSeen   time.Time         `json:"last_seen"`
+	Status     types.NodeStatus  `json:"status"`
+	ObservedAt time.Time         `json:"observed_at"`
+}
 
 // NodeStore manages registered agent nodes and their labels.
 //
@@ -23,6 +37,12 @@ type NodeStore interface {
 
 	// IsRegistered returns true if the node has been registered.
 	IsRegistered(nodeID string) bool
+
+	// UpdateStatus updates the node's current status and observation time.
+	UpdateStatus(nodeID string, status types.NodeStatus, observedAt time.Time) error
+
+	// ListNodes returns all registered nodes.
+	ListNodes() ([]Node, error)
 }
 
 // ReportStore persists execution reports sent back by Agents.

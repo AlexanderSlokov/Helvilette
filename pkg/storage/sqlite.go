@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver, same as k3s/kine
 
@@ -19,7 +20,9 @@ CREATE TABLE IF NOT EXISTS nodes (
     node_id    TEXT PRIMARY KEY,
     labels     TEXT NOT NULL DEFAULT '{}',
     registered DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_seen  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    last_seen  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status_json TEXT NOT NULL DEFAULT '{}',
+    observed_at DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS reports (
@@ -28,7 +31,8 @@ CREATE TABLE IF NOT EXISTS reports (
     job_id      TEXT NOT NULL,
     status      TEXT NOT NULL,
     task_logs   TEXT NOT NULL DEFAULT '{}',
-    reported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    reported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    observed_at DATETIME
 );
 `
 
@@ -62,6 +66,11 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+
+	// Migrations: ignore errors if columns already exist
+	_, _ = db.Exec(`ALTER TABLE nodes ADD COLUMN status_json TEXT NOT NULL DEFAULT '{}'`)
+	_, _ = db.Exec(`ALTER TABLE nodes ADD COLUMN observed_at DATETIME`)
+	_, _ = db.Exec(`ALTER TABLE reports ADD COLUMN observed_at DATETIME`)
 
 	return &SQLiteStore{db: db}, nil
 }
@@ -117,6 +126,58 @@ func (s *SQLiteStore) IsRegistered(nodeID string) bool {
 	return err == nil
 }
 
+// UpdateStatus updates the node's current status and observation time.
+func (s *SQLiteStore) UpdateStatus(nodeID string, status types.NodeStatus, observedAt time.Time) error {
+	statusJSON, err := json.Marshal(status)
+	if err != nil {
+		return fmt.Errorf("marshal status for node %q: %w", nodeID, err)
+	}
+
+	_, err = s.db.Exec(`
+		UPDATE nodes SET
+			status_json = ?,
+			observed_at = ?
+		WHERE node_id = ?
+	`, string(statusJSON), observedAt, nodeID)
+
+	if err != nil {
+		return fmt.Errorf("update status for node %q: %w", nodeID, err)
+	}
+	return nil
+}
+
+// ListNodes returns all registered nodes.
+func (s *SQLiteStore) ListNodes() ([]Node, error) {
+	rows, err := s.db.Query(`SELECT node_id, labels, registered, last_seen, status_json, observed_at FROM nodes ORDER BY node_id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var nodes []Node
+	for rows.Next() {
+		var n Node
+		var labelsJSON, statusJSON string
+		var observedAt sql.NullTime
+		if err := rows.Scan(&n.NodeID, &labelsJSON, &n.Registered, &n.LastSeen, &statusJSON, &observedAt); err != nil {
+			return nil, fmt.Errorf("scan node row: %w", err)
+		}
+		json.Unmarshal([]byte(labelsJSON), &n.Labels)
+		json.Unmarshal([]byte(statusJSON), &n.Status)
+		if observedAt.Valid {
+			n.ObservedAt = observedAt.Time
+		}
+		nodes = append(nodes, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate node rows: %w", err)
+	}
+	if nodes == nil {
+		nodes = []Node{}
+	}
+	return nodes, nil
+}
+
 // --- ReportStore implementation ---
 
 // Save persists a single execution report.
@@ -126,10 +187,15 @@ func (s *SQLiteStore) Save(report types.Report) error {
 		taskLogs = "{}"
 	}
 
+	var observedAt interface{}
+	if !report.ObservedAt.IsZero() {
+		observedAt = report.ObservedAt
+	}
+
 	_, err := s.db.Exec(`
-		INSERT INTO reports (node_id, job_id, status, task_logs)
-		VALUES (?, ?, ?, ?)
-	`, report.NodeID, report.JobID, report.Status, taskLogs)
+		INSERT INTO reports (node_id, job_id, status, task_logs, observed_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, report.NodeID, report.JobID, report.Status, taskLogs, observedAt)
 
 	if err != nil {
 		return fmt.Errorf("save report for node %q job %q: %w", report.NodeID, report.JobID, err)
@@ -139,7 +205,7 @@ func (s *SQLiteStore) Save(report types.Report) error {
 
 // List returns all stored reports ordered by insertion time (oldest first).
 func (s *SQLiteStore) List() ([]types.Report, error) {
-	rows, err := s.db.Query(`SELECT node_id, job_id, status, task_logs FROM reports ORDER BY id ASC`)
+	rows, err := s.db.Query(`SELECT node_id, job_id, status, task_logs, observed_at FROM reports ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list reports: %w", err)
 	}
@@ -149,10 +215,14 @@ func (s *SQLiteStore) List() ([]types.Report, error) {
 	for rows.Next() {
 		var r types.Report
 		var taskLogs string
-		if err := rows.Scan(&r.NodeID, &r.JobID, &r.Status, &taskLogs); err != nil {
+		var observedAt sql.NullTime
+		if err := rows.Scan(&r.NodeID, &r.JobID, &r.Status, &taskLogs, &observedAt); err != nil {
 			return nil, fmt.Errorf("scan report row: %w", err)
 		}
 		r.TaskLogs = json.RawMessage(taskLogs)
+		if observedAt.Valid {
+			r.ObservedAt = observedAt.Time
+		}
 		reports = append(reports, r)
 	}
 
