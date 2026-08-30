@@ -318,3 +318,5 @@ Four failure-based runs to validate correct behavior during chaos:
 
 - [ ] Issue #31: Standardize Othela startup logs to structured JSON exclusively. Remove plain-text log calls from control plane.
 - [ ] Issue #32: Add periodic polling or webhook receiver for `--fleet-repo` in Othela to detect new commits and dispatch jobs.
+- [ ] Issue #33: Fix unknown flag `--fleet-repo` in E2E. The `docker-compose.e2e.yaml` uses `--fleet-repo` which Othela CLI does not actually support. Either implement the flag or update the E2E setup.
+- [ ] Issue #34: Fix playbook loader silent skip. Othela `loader.go` silently ignores playbooks (returns `count: 0`) under certain directory conditions without emitting any `Warn` logs, making debugging difficult. Add proper trace logging.
