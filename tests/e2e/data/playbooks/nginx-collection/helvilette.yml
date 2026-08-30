@@ -79,6 +79,7 @@ spec:
     - name: "high-performance-proxies"
       nodeSelector:
         role: "edge-proxy"
+        tier: "high-performance"
       ansible:
         vault-password-file: nginx_vault_pass
         extra_vars:

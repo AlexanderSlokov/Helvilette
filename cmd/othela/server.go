@@ -216,7 +216,12 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 
 		matches := manifest.MatchNodeGroups(pb.Manifest, labels)
 		if len(matches) > 0 {
-			group := matches[0] // take the first match
+			// ADR-0004 rejects exact-duplicate selectors at load time, so
+			// multiple matches here can only arise from subset overlap (e.g.
+			// selectors {role: proxy} and {role: proxy, tier: hot} both match
+			// a node with both labels). First-match is kept for this edge case
+			// until full subset-overlap rejection lands in v1beta1.
+			group := matches[0]
 
 			repoURL := pb.Manifest.Spec.Repo
 			if repoURL == "" {

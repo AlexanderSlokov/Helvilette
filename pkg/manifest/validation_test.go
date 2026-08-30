@@ -111,3 +111,50 @@ func TestValidateErrorsNameTheExpectedShape(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "role: edge-proxy", "error should show the expected shape")
 }
+
+// TestValidateRejectsIdenticalSelectors verifies that two nodeGroups with the
+// same nodeSelector are rejected, naming both groups and the shared selector.
+func TestValidateRejectsIdenticalSelectors(t *testing.T) {
+	m := validManifest()
+	m.Spec.NodeGroups = []NodeGroup{
+		{Name: "standard-proxies", NodeSelector: map[string]string{"role": "edge-proxy"}},
+		{Name: "high-perf-proxies", NodeSelector: map[string]string{"role": "edge-proxy"}},
+	}
+
+	err := Validate(m)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "standard-proxies")
+	assert.Contains(t, err.Error(), "high-perf-proxies")
+	assert.Contains(t, err.Error(), "identical nodeSelector")
+}
+
+// TestValidateAcceptsDifferentSelectors verifies that two nodeGroups with
+// different selectors pass validation, even if one is a subset of the other.
+func TestValidateAcceptsDifferentSelectors(t *testing.T) {
+	m := validManifest()
+	m.Spec.NodeGroups = []NodeGroup{
+		{Name: "standard-proxies", NodeSelector: map[string]string{"role": "edge-proxy"}},
+		{Name: "high-perf-proxies", NodeSelector: map[string]string{"role": "edge-proxy", "tier": "high-performance"}},
+	}
+
+	assert.NoError(t, Validate(m))
+}
+
+// TestValidateRejectsOverlapAmongThreeGroups verifies that when three groups
+// exist and two share a selector, the error names the overlapping pair.
+func TestValidateRejectsOverlapAmongThreeGroups(t *testing.T) {
+	m := validManifest()
+	m.Spec.NodeGroups = []NodeGroup{
+		{Name: "group-a", NodeSelector: map[string]string{"role": "web"}},
+		{Name: "group-b", NodeSelector: map[string]string{"role": "db"}},
+		{Name: "group-c", NodeSelector: map[string]string{"role": "web"}},
+	}
+
+	err := Validate(m)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "group-a")
+	assert.Contains(t, err.Error(), "group-c")
+	assert.Contains(t, err.Error(), "identical nodeSelector")
+}

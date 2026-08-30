@@ -37,6 +37,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+* **BREAKING — Manifests with overlapping `nodeGroup` selectors are rejected.** Previously,
+  if multiple node groups had identical label selectors (e.g., both targeting `role: edge-proxy`),
+  the agent would only apply the first one and silently ignore the rest. This was a source of
+  confusion as conflicting `extra_vars` or `vault-password-file` values would be ignored without
+  any indication. Now, validation will fail at load time, requiring the operator to provide
+  distinct selectors for each group. See [ADR-0004](docs/informations/ADRs/ADR-0004.md).
+  ([#15](https://github.com/AlexanderSlokov/Helvilette/issues/15))
 * **BREAKING — `Job.PlaybookContent` removed from the wire format.** The field carried an
   inline Ansible playbook and was the original delivery mechanism before GitOps references
   (`RepoURL`, `PlaybookPath`, `Version`) replaced it. No production code path read or wrote

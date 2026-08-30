@@ -222,10 +222,14 @@ Log rich, display poor. Store events as JSONL; display only what is necessary.
 ## 6. Technical Debt
 
 ### 6.1. Nodes matching multiple nodeGroups only execute the first one
-Issue: #15
-- [ ] Decide semantics for multiple matching nodeGroups (reject overlapping selectors, merge extra_vars, or keep first-match but log a WARN).
-- [ ] Add validation or logging to pkg/manifest and handleSync.
-- [ ] Fix e2e manifest to reflect the chosen semantics.
+Issue: #15. ADR: ADR-0004. Resolved.
+- [x] Decide semantics for multiple matching nodeGroups: reject manifests where two
+      nodeGroups carry identical nodeSelector maps at load time (breaking change).
+      Rationale: conflicting extra_vars and vault-password-file values are a specification
+      error, not a feature. See ADR-0004.
+- [x] Add validation to pkg/manifest/validation.go (validateNodeGroupSelectorUniqueness).
+      Scope: exact map equality. Subset/superset overlap deferred to v1beta1.
+- [x] Fix e2e manifest: high-performance-proxies now has {role: edge-proxy, tier: high-performance}.
 
 ### 6.2. Fallback HELV_TEST_REPO_URL is dead code
 - [ ] Remove fallback branch and HELV_TEST_REPO_URL variable from docker-compose.e2e.yaml if unused.
