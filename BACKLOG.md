@@ -313,3 +313,8 @@ Four failure-based runs to validate correct behavior during chaos:
 ### 7.2. Concorde & Hot-patch Test
 - [ ] Implement hot-patch test: restart Othela while 50 agents are actively running jobs to ensure no jobs are lost.
 - [ ] Implement Concorde test framework: run a 500-node simulated fleet to evaluate incident response time window and system stability under stress.
+
+## 8. First Light Remediation
+
+- [ ] Issue #31: Standardize Othela startup logs to structured JSON exclusively. Remove plain-text log calls from control plane.
+- [ ] Issue #32: Add periodic polling or webhook receiver for `--fleet-repo` in Othela to detect new commits and dispatch jobs.
