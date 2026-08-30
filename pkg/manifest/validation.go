@@ -67,7 +67,45 @@ func validateNodeGroups(groups []NodeGroup) error {
 			return err
 		}
 	}
+	return validateNodeGroupSelectorUniqueness(groups)
+}
+
+// validateNodeGroupSelectorUniqueness rejects manifests where two nodeGroups
+// share an identical nodeSelector. Two groups with the same selector would
+// match the same nodes, but only one can be dispatched — the other is silently
+// dropped. Conflicting extra_vars or vault-password-file values make this a
+// specification error the operator must resolve. See ADR-0004 and issue #15.
+//
+// Scope: exact map equality only. Subset/superset overlap (e.g. {role: proxy}
+// vs. {role: proxy, tier: hot}) is deferred to v1beta1.
+func validateNodeGroupSelectorUniqueness(groups []NodeGroup) error {
+	for i := 0; i < len(groups); i++ {
+		for j := i + 1; j < len(groups); j++ {
+			if selectorEqual(groups[i].NodeSelector, groups[j].NodeSelector) {
+				return fmt.Errorf(
+					"spec.nodeGroups[%d] (%q) and spec.nodeGroups[%d] (%q) have identical nodeSelector %v; "+
+						"only one would be dispatched, the other silently dropped. "+
+						"Give each group a distinct selector. See ADR-0004",
+					i, groups[i].Name, j, groups[j].Name, groups[i].NodeSelector,
+				)
+			}
+		}
+	}
 	return nil
+}
+
+// selectorEqual returns true if two nodeSelector maps contain exactly the same
+// key-value pairs. Both nil and empty maps are treated as equal.
+func selectorEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // validateNodeGroup surfaces the empty-nodeSelector trap: MatchNodeGroups treats
