@@ -75,7 +75,7 @@ var _ = Describe("GitOps Workflow", func() {
 				cp -a /src/nginx-collection/* /git/nginx-collection/ &&
 				cd /git/nginx-collection && 
 				rm -rf .git &&
-				git init && 
+				git init -b main && 
 				git config receive.denyCurrentBranch ignore && 
 				git add . && 
 				git config user.name "Tester" && 
