@@ -65,9 +65,23 @@ var _ = Describe("GitOps Workflow", func() {
 			Mounts: testcontainers.ContainerMounts{
 				{
 					Source:   testcontainers.GenericBindMountSource{HostPath: filepath.Join(absPlaybookPath, "nginx-collection")},
-					Target:   testcontainers.ContainerMountTarget("/git/nginx-collection"),
+					Target:   testcontainers.ContainerMountTarget("/src/nginx-collection"),
 					ReadOnly: true,
 				},
+			},
+			Cmd: []string{
+				"sh", "-c",
+				`mkdir -p /git/nginx-collection &&
+				cp -a /src/nginx-collection/* /git/nginx-collection/ &&
+				cd /git/nginx-collection && 
+				rm -rf .git &&
+				git init && 
+				git config receive.denyCurrentBranch ignore && 
+				git add . && 
+				git config user.name "Tester" && 
+				git config user.email "test@example.com" && 
+				git commit -m "Initial commit" && 
+				exec git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack`,
 			},
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{

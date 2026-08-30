@@ -7,11 +7,25 @@ services:
       dockerfile: Dockerfile.gitserver
     image: helvilette-gitserver:local
     volumes:
-      - ./tests/e2e/data/playbooks/nginx-collection:/git/nginx-collection:ro
+      - ./tests/e2e/data/playbooks/nginx-collection:/src/nginx-collection:ro
     networks:
       - helvilette-net
     ports:
       - "9418:9418"
+    command: >
+      sh -c '
+        mkdir -p /git/nginx-collection &&
+        cp -a /src/nginx-collection/* /git/nginx-collection/ &&
+        cd /git/nginx-collection && 
+        rm -rf .git &&
+        git init && 
+        git config receive.denyCurrentBranch ignore && 
+        git add . && 
+        git config user.name "Tester" && 
+        git config user.email "test@example.com" && 
+        git commit -m "Initial commit" && 
+        exec git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack
+      '
 
   othela:
     build:
