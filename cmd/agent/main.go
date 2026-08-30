@@ -44,6 +44,8 @@ const (
 	SourceConfigFile      = "config-file"
 )
 
+const labelsPrefix = "labels."
+
 func sourceEnv(name string) string { return "env(" + name + ")" }
 
 func sourceCLI(flag string) string { return "cli(--" + flag + ")" }
@@ -91,9 +93,7 @@ func parseLabels(s string) map[string]string {
 	return labels
 }
 
-// LoadConfig merges default, yaml file, environment, and CLI configurations. The returned
-// ConfigProvenance records which source won each value, so the agent can report it at startup.
-func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspaceDir, cliLabels string) (AgentConfiguration, ConfigProvenance, error) {
+func initDefaultConfig() (AgentConfiguration, ConfigProvenance) {
 	config := DefaultConfig()
 
 	_, nodeIDFromHostname := defaultNodeID()
@@ -108,8 +108,10 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 		"pollInterval": SourceDefault,
 		"workspaceDir": SourceDefault,
 	}
+	return config, provenance
+}
 
-	// 1. Override with Environment Variables
+func overrideFromEnv(config *AgentConfiguration, provenance ConfigProvenance) {
 	if url := os.Getenv("OTHELA_URL"); url != "" {
 		config.OthelaURL = url
 		provenance["othelaURL"] = sourceEnv("OTHELA_URL")
@@ -132,64 +134,62 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 		envLabels := parseLabels(labelsStr)
 		for k, v := range envLabels {
 			config.Labels[k] = v
-			provenance["labels."+k] = sourceEnv("AGENT_LABELS")
+			provenance[labelsPrefix+k] = sourceEnv("AGENT_LABELS")
 		}
 	}
+}
 
-	// 2. Override with the YAML file if provided. An explicit, version-controlled
-	// config file outranks ambient environment variables, so that what an operator
-	// reads in the file is what the agent actually runs. See docs/informations/ADRs/ADR-0001.md.
-	if configPath != "" {
-		data, err := os.ReadFile(configPath)
+func overrideFromFile(configPath string, config *AgentConfiguration, provenance ConfigProvenance) error {
+	if configPath == "" {
+		return nil
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var raw struct {
+		OthelaURL    string            `yaml:"othelaURL"`
+		NodeID       string            `yaml:"nodeID"`
+		PollInterval string            `yaml:"pollInterval"`
+		WorkspaceDir string            `yaml:"workspaceDir"`
+		Labels       map[string]string `yaml:"labels"`
+	}
+
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&raw); err != nil && err != io.EOF {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if raw.OthelaURL != "" {
+		config.OthelaURL = raw.OthelaURL
+		provenance["othelaURL"] = SourceConfigFile
+	}
+	if raw.NodeID != "" {
+		config.NodeID = raw.NodeID
+		provenance["nodeID"] = SourceConfigFile
+	}
+	if raw.WorkspaceDir != "" {
+		config.WorkspaceDir = raw.WorkspaceDir
+		provenance["workspaceDir"] = SourceConfigFile
+	}
+	if raw.PollInterval != "" {
+		d, err := time.ParseDuration(raw.PollInterval)
 		if err != nil {
-			return config, provenance, fmt.Errorf("failed to read config file: %w", err)
+			return fmt.Errorf("invalid pollInterval in config file: %w", err)
 		}
-
-		var raw struct {
-			OthelaURL    string            `yaml:"othelaURL"`
-			NodeID       string            `yaml:"nodeID"`
-			PollInterval string            `yaml:"pollInterval"`
-			WorkspaceDir string            `yaml:"workspaceDir"`
-			Labels       map[string]string `yaml:"labels"`
-		}
-
-		// Reject unknown keys rather than silently ignoring them: a misspelled key
-		// would otherwise leave the agent quietly running on defaults.
-		dec := yaml.NewDecoder(bytes.NewReader(data))
-		dec.KnownFields(true)
-		if err := dec.Decode(&raw); err != nil && err != io.EOF {
-			return config, provenance, fmt.Errorf("failed to parse config file: %w", err)
-		}
-
-		if raw.OthelaURL != "" {
-			config.OthelaURL = raw.OthelaURL
-			provenance["othelaURL"] = SourceConfigFile
-		}
-		if raw.NodeID != "" {
-			config.NodeID = raw.NodeID
-			provenance["nodeID"] = SourceConfigFile
-		}
-		if raw.WorkspaceDir != "" {
-			config.WorkspaceDir = raw.WorkspaceDir
-			provenance["workspaceDir"] = SourceConfigFile
-		}
-		if raw.PollInterval != "" {
-			d, err := time.ParseDuration(raw.PollInterval)
-			if err != nil {
-				return config, provenance, fmt.Errorf("invalid pollInterval in config file: %w", err)
-			}
-			config.PollInterval = d
-			provenance["pollInterval"] = SourceConfigFile
-		}
-		// Merge per key, like the env and CLI label sources, so that labels set in
-		// the environment survive unless the file overrides that specific key.
-		for k, v := range raw.Labels {
-			config.Labels[k] = v
-			provenance["labels."+k] = SourceConfigFile
-		}
+		config.PollInterval = d
+		provenance["pollInterval"] = SourceConfigFile
 	}
+	for k, v := range raw.Labels {
+		config.Labels[k] = v
+		provenance[labelsPrefix+k] = SourceConfigFile
+	}
+	return nil
+}
 
-	// 3. Override with CLI Flags (highest priority)
+func overrideFromCLI(cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspaceDir, cliLabels string, config *AgentConfiguration, provenance ConfigProvenance) {
 	if cliOthelaURL != "" {
 		config.OthelaURL = cliOthelaURL
 		provenance["othelaURL"] = sourceCLI("othela-url")
@@ -212,20 +212,38 @@ func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspa
 		cliParsedLabels := parseLabels(cliLabels)
 		for k, v := range cliParsedLabels {
 			config.Labels[k] = v
-			provenance["labels."+k] = sourceCLI("labels")
+			provenance[labelsPrefix+k] = sourceCLI("labels")
 		}
 	}
+}
 
-	// Format URL
-	if !filepath.HasPrefix(config.OthelaURL, "http") {
-		config.OthelaURL = "http://" + config.OthelaURL
+func formatOthelaURL(url string) string {
+	if !strings.HasPrefix(url, "http") {
+		url = "http://" + url
 	}
-	if len(config.OthelaURL) > 0 && config.OthelaURL[len(config.OthelaURL)-1] == '/' {
-		config.OthelaURL = config.OthelaURL[:len(config.OthelaURL)-1]
+	if len(url) > 0 && url[len(url)-1] == '/' {
+		url = url[:len(url)-1]
 	}
-	if len(config.OthelaURL) < 7 || config.OthelaURL[len(config.OthelaURL)-7:] != "/api/v1" {
-		config.OthelaURL = config.OthelaURL + "/api/v1"
+	if len(url) < 7 || url[len(url)-7:] != "/api/v1" {
+		url = url + "/api/v1"
 	}
+	return url
+}
+
+// LoadConfig merges default, yaml file, environment, and CLI configurations. The returned
+// ConfigProvenance records which source won each value, so the agent can report it at startup.
+func LoadConfig(configPath, cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspaceDir, cliLabels string) (AgentConfiguration, ConfigProvenance, error) {
+	config, provenance := initDefaultConfig()
+
+	overrideFromEnv(&config, provenance)
+
+	if err := overrideFromFile(configPath, &config, provenance); err != nil {
+		return config, provenance, err
+	}
+
+	overrideFromCLI(cliOthelaURL, cliNodeID, cliPollInterval, cliWorkspaceDir, cliLabels, &config, provenance)
+
+	config.OthelaURL = formatOthelaURL(config.OthelaURL)
 
 	return config, provenance, nil
 }
@@ -247,7 +265,7 @@ func configFields(config AgentConfiguration) [][2]string {
 	}
 	sort.Strings(labelKeys)
 	for _, k := range labelKeys {
-		fields = append(fields, [2]string{"labels." + k, config.Labels[k]})
+		fields = append(fields, [2]string{labelsPrefix + k, config.Labels[k]})
 	}
 
 	return fields
@@ -514,7 +532,16 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 		return "Failed", b
 	}
 
-	cmd := exec.Command("ansible-playbook", "-i", "localhost,", "-c", "local", playbookFile)
+	ansiblePath, err := exec.LookPath("ansible-playbook")
+	if err != nil {
+		logger.Error().Err(err).Str("job_id", job.JobID).Msg("ansible-playbook executable not found in PATH")
+		b, _ := json.Marshal(map[string]string{
+			"error": "ansible-playbook executable not found in PATH",
+		})
+		return "Failed", b
+	}
+
+	cmd := exec.Command(ansiblePath, "-i", "localhost,", "-c", "local", playbookFile)
 	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(), "ANSIBLE_STDOUT_CALLBACK=json")
 
@@ -530,7 +557,7 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 		Str("work_dir", workDir).
 		Msg("running ansible-playbook")
 
-	output, err := cmd.CombinedOutput()
+	output, err = cmd.CombinedOutput()
 
 	status = "Success"
 	if err != nil {
@@ -641,7 +668,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		logger.Warn().Err(err).Msg("failed to read previous status")
 	} else if lastStatus != nil && lastStatus.Status == "InProgress" {
 		logger.Warn().Str("job_id", lastStatus.JobID).Msg("detected interrupted job, reporting failure")
-		
+
 		lastStatus.Status = "Failed (Interrupted)"
 		if err := a.writeStatus(*lastStatus); err != nil {
 			logger.Error().Err(err).Msg("failed to update status of interrupted job")
@@ -655,7 +682,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			ObservedAt: time.Now(),
 			NodeStatus: *lastStatus,
 		}
-		
+
 		if err := a.SendReport(failReport); err != nil {
 			logger.Error().Err(err).Msg("failed to send report for interrupted job")
 		} else {

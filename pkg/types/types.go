@@ -32,8 +32,8 @@ type NodeStatus struct {
 type Report struct {
 	NodeID     string          `json:"node_id"`
 	JobID      string          `json:"job_id"`
-	Status     string          `json:"status"`   // Success, Failed
-	TaskLogs   json.RawMessage `json:"task_log"` // Ansible JSON output
-	ObservedAt time.Time       `json:"observed_at"` // When the node observed this state
+	Status     string          `json:"status"`                // Success, Failed
+	TaskLogs   json.RawMessage `json:"task_log"`              // Ansible JSON output
+	ObservedAt time.Time       `json:"observed_at"`           // When the node observed this state
 	NodeStatus NodeStatus      `json:"node_status,omitempty"` // Complete node state summary
 }
