@@ -128,6 +128,7 @@ func NewServerWithConfig(cfg ServerConfig) *Server {
 
 func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/api/v1/nodes/register", s.handleRegisterNode).Methods("POST")
+	s.router.HandleFunc("/api/v1/nodes", s.handleGetNodes).Methods("GET")
 	s.router.HandleFunc("/api/v1/sync/{node_id}", s.handleSync).Methods("GET")
 	s.router.HandleFunc("/api/v1/report", s.handleReport).Methods("POST")
 	s.router.HandleFunc("/api/v1/playbooks", s.handlePlaybooks).Methods("GET")
@@ -286,6 +287,35 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(matchedJob)
 }
 
+// handleGetNodes returns all registered nodes and their statuses
+func (s *Server) handleGetNodes(w http.ResponseWriter, r *http.Request) {
+	nodes, err := s.nodeStore.ListNodes()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type NodeResponse struct {
+		storage.Node
+		NetworkStatus string `json:"network_status"`
+	}
+
+	var response []NodeResponse
+	for _, n := range nodes {
+		networkStatus := "Known"
+		if time.Since(n.LastSeen) > 2*time.Minute {
+			networkStatus = "Unknown"
+		}
+		response = append(response, NodeResponse{
+			Node:          n,
+			NetworkStatus: networkStatus,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // handleReport handles the report endpoint - Agent sends back results
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	var report Report
@@ -296,6 +326,13 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.reportStore.Save(report); err != nil {
 		log.Printf("[ERROR] Failed to save report: %v", err)
+	}
+
+	// Update node status based on the report
+	if report.NodeStatus.JobID != "" {
+		if err := s.nodeStore.UpdateStatus(report.NodeID, report.NodeStatus, report.ObservedAt); err != nil {
+			log.Printf("[ERROR] Failed to update node status: %v", err)
+		}
 	}
 
 	log.Printf("---------------------------------------------------")

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"sync"
+	"time"
 
 	"helvilette/pkg/types"
 )
@@ -11,28 +12,37 @@ import (
 // Thread-safe via sync.RWMutex.
 type MemoryNodeStore struct {
 	mu    sync.RWMutex
-	nodes map[string]map[string]string // nodeID -> labels
+	nodes map[string]Node // nodeID -> Node
 }
 
 // NewMemoryNodeStore creates a ready-to-use in-memory node store.
 func NewMemoryNodeStore() *MemoryNodeStore {
 	return &MemoryNodeStore{
-		nodes: make(map[string]map[string]string),
+		nodes: make(map[string]Node),
 	}
 }
 
 func (s *MemoryNodeStore) Register(nodeID string, labels map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.nodes[nodeID] = labels
+	node, exists := s.nodes[nodeID]
+	if !exists {
+		node = Node{
+			NodeID:     nodeID,
+			Registered: time.Now(),
+		}
+	}
+	node.Labels = labels
+	node.LastSeen = time.Now()
+	s.nodes[nodeID] = node
 	return nil
 }
 
 func (s *MemoryNodeStore) GetLabels(nodeID string) (map[string]string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	labels, ok := s.nodes[nodeID]
-	return labels, ok
+	node, ok := s.nodes[nodeID]
+	return node.Labels, ok
 }
 
 func (s *MemoryNodeStore) IsRegistered(nodeID string) bool {
@@ -40,6 +50,29 @@ func (s *MemoryNodeStore) IsRegistered(nodeID string) bool {
 	defer s.mu.RUnlock()
 	_, ok := s.nodes[nodeID]
 	return ok
+}
+
+func (s *MemoryNodeStore) UpdateStatus(nodeID string, status types.NodeStatus, observedAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	node, exists := s.nodes[nodeID]
+	if !exists {
+		return nil // or error, but this is a mock store
+	}
+	node.Status = status
+	node.ObservedAt = observedAt
+	s.nodes[nodeID] = node
+	return nil
+}
+
+func (s *MemoryNodeStore) ListNodes() ([]Node, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var nodes []Node
+	for _, n := range s.nodes {
+		nodes = append(nodes, n)
+	}
+	return nodes, nil
 }
 
 // MemoryReportStore implements ReportStore using an in-memory slice.
