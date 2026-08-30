@@ -16,7 +16,7 @@ up:
 	@echo "5. Watch Othela logs: make othela -> sudo journalctl -u othela -f"
 	@echo "================================================================"
 
-setup-repo:
+repo:
 	cd baseline-repo && \
 	git init && \
 	git add . && \

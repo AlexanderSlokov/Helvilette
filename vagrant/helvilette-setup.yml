@@ -67,7 +67,7 @@
           [Service]
           Type=simple
           User=helvilette
-          ExecStart=/usr/local/bin/othela --port=8080 --state-dir=/var/lib/helvilette/othela --playbook-dir=/var/lib/helvilette/playbooks
+          ExecStart=/usr/local/bin/othela --port=8080 --state-dir=/var/lib/helvilette/othela --fleet-repo=http://192.168.121.10:3000/helvi-test/baseline.git
           Restart=always
           RestartSec=5
 
@@ -157,20 +157,7 @@
       args:
         chdir: /opt/gitea
 
-    - name: Create Helvilette deployment manifest
-      copy:
-        dest: /var/lib/helvilette/playbooks/baseline.yml
-        owner: helvilette
-        group: helvilette
-        content: |
-          apiVersion: helvilette.io/v1alpha1
-          kind: PlaybookDeployment
-          metadata:
-            name: "baseline-test"
-          spec:
-            repo: "http://192.168.121.10:3000/helvi-test/baseline.git"
-            branch: "main"
-            playbook: "playbook.yml"
-            nodeGroups:
-              - name: "all-agents"
-                nodeSelector: {}
+    - name: Start Gitea
+      command: docker-compose up -d
+      args:
+        chdir: /opt/gitea
