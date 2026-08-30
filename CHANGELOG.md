@@ -146,6 +146,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   test file, and ran `./pkg/storage/...` twice. Collapsed into one step covering `./cmd/...`
   and `./pkg/...`. ([#17](https://github.com/AlexanderSlokov/Helvilette/issues/17))
 
+* `make e2e` no longer hardcodes a machine-specific Go SDK path. The target prepended
+  `/home/stella/sdk/go1.26.1/bin` to `PATH`, which resolved to nothing on any other machine
+  and could silently run the suite under a toolchain that did not match `go.mod`. Ginkgo is
+  now invoked via `go run github.com/onsi/ginkgo/v2/ginkgo`, which uses the version pinned
+  in `go.mod` and works on any machine with a Go toolchain.
+  ([#18](https://github.com/AlexanderSlokov/Helvilette/issues/18))
+
 * Unrecognised keys in the agent config file are now rejected at startup instead of being
   silently ignored. A misspelled key previously left the agent quietly running on defaults —
   polling `http://localhost:8080/api/v1` and registering as `agent-01`.

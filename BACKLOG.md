@@ -273,9 +273,9 @@ still describe the same artifact differently. Reconciliation in 3.6 needs them t
 - [ ] Have Othela resolve playbooks by Git reference. Tracked jointly with 6.3. Issue: #23.
 
 ### 6.6. make e2e hardcodes a machine-specific Go SDK path
-Issue: #18
-- [ ] Remove /home/stella/sdk/go1.26.1/bin from the e2e target in Makefile.
-- [ ] Resolve ginkgo through the module toolchain so the suite runs under the version
+Issue: #18. Resolved.
+- [x] Remove /home/stella/sdk/go1.26.1/bin from the e2e target in Makefile.
+- [x] Resolve ginkgo through the module toolchain so the suite runs under the version
       pinned in go.mod.
 
 ### 6.7. cmd/agent/main.go exceeds the file size limit
