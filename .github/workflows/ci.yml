@@ -5,14 +5,14 @@ on:
     branches:
       - main
       - develop
-      - 'release/**'
-      - '*-rc-*'
+      - 'releases/*'
+      - 'v*.*.*-rc*'
   pull_request:
     branches:
       - main
       - develop
-      - 'release/**'
-      - '*-rc-*'
+      - 'releases/*'
+      - 'v*.*.*-rc*'
 
 jobs:
   test:
@@ -62,3 +62,21 @@ jobs:
         run: go build -o bin/agent ./cmd/agent
         env:
           CGO_ENABLED: "1"
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run E2E Tests
+        run: make e2e
