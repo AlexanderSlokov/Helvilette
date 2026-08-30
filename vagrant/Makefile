@@ -1,3 +1,7 @@
+teardown: down up
+
+down:
+	vagrant destroy -f
 
 up:
 	vagrant up
