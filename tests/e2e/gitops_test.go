@@ -65,9 +65,23 @@ var _ = Describe("GitOps Workflow", func() {
 			Mounts: testcontainers.ContainerMounts{
 				{
 					Source:   testcontainers.GenericBindMountSource{HostPath: filepath.Join(absPlaybookPath, "nginx-collection")},
-					Target:   testcontainers.ContainerMountTarget("/git/nginx-collection"),
+					Target:   testcontainers.ContainerMountTarget("/src/nginx-collection"),
 					ReadOnly: true,
 				},
+			},
+			Cmd: []string{
+				"sh", "-c",
+				`mkdir -p /git/nginx-collection &&
+				cp -a /src/nginx-collection/* /git/nginx-collection/ &&
+				cd /git/nginx-collection && 
+				rm -rf .git &&
+				git init -b main && 
+				git config receive.denyCurrentBranch ignore && 
+				git add . && 
+				git config user.name "Tester" && 
+				git config user.email "test@example.com" && 
+				git commit -m "Initial commit" && 
+				exec git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack`,
 			},
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{
@@ -94,7 +108,7 @@ var _ = Describe("GitOps Workflow", func() {
 			Cmd: []string{
 				"./othela",
 				"--port=8080",
-				"--playbook-dir=/app/playbooks",
+				"--fleet-repo=git://git-server:9418/nginx-collection",
 				// State stays on the container filesystem. Bind-mounting it would
 				// put a writable path inside the Go module tree, which is what
 				// broke `go vet ./...` before ADR-0003.
@@ -103,13 +117,6 @@ var _ = Describe("GitOps Workflow", func() {
 			},
 			Env: map[string]string{
 				"HELV_TEST_REPO_URL": "git://git-server:9418/nginx-collection",
-			},
-			Mounts: testcontainers.ContainerMounts{
-				{
-					Source:   testcontainers.GenericBindMountSource{HostPath: absPlaybookPath},
-					Target:   testcontainers.ContainerMountTarget("/app/playbooks"),
-					ReadOnly: true,
-				},
 			},
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{

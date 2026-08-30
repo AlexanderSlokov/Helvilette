@@ -235,13 +235,13 @@ Issue: #15. ADR: ADR-0004. Resolved.
 - [ ] Remove fallback branch and HELV_TEST_REPO_URL variable from docker-compose.e2e.yaml if unused.
 
 ### 6.3. Nested e2e manifest is outdated compared to working tree
-Issue: #20. ADR: ADR-0003.
+Issue: #20, #24. ADR: ADR-0003. Resolved.
 The git-server serves the committed manifest while Othela reads the working tree, so the two
 disagree whenever helvilette.yml is edited without committing. Root cause is that Othela treated
 a mutable directory as a versioned artifact.
 - [x] Mount the playbook directory read-only in both docker-compose.e2e.yaml and the
       testcontainers suite, so nothing can write to it during a run.
-- [ ] Resolve playbooks on the Othela side by Git reference rather than by reading a local
+- [x] Resolve playbooks on the Othela side by Git reference rather than by reading a local
       directory, matching how the agent already works after 3.1. This closes the gap fully.
       Issue: #23.
 
@@ -275,7 +275,7 @@ still describe the same artifact differently. Reconciliation in 3.6 needs them t
 - [x] Move SQLite to {state-dir}/db/state.db and out of the playbook directory.
 - [x] Use a named volume for state in compose, so no writable path is bind-mounted into the
       Go module tree.
-- [ ] Have Othela resolve playbooks by Git reference. Tracked jointly with 6.3. Issue: #23.
+- [x] Have Othela resolve playbooks by Git reference. Tracked jointly with 6.3. Issue: #24.
 
 ### 6.6. make e2e hardcodes a machine-specific Go SDK path
 Issue: #18. Resolved.

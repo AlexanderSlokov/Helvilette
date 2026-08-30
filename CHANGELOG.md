@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed (Breaking)
+
+* Othela now resolves playbooks (manifests) exclusively by Git reference. The `--playbook-dir` flag has been removed and replaced by `--fleet-repo` (required) and `--fleet-branch`. This completes the GitOps transition described in ADR-0003 and Issue #24.
+
 ### Added
 
 * `helvilette.yml` is now validated when it is loaded. `apiVersion` and `kind` must match

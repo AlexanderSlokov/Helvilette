@@ -7,11 +7,25 @@ services:
       dockerfile: Dockerfile.gitserver
     image: helvilette-gitserver:local
     volumes:
-      - ./tests/e2e/data/playbooks/nginx-collection:/git/nginx-collection:ro
+      - ./tests/e2e/data/playbooks/nginx-collection:/src/nginx-collection:ro
     networks:
       - helvilette-net
     ports:
       - "9418:9418"
+    command: >
+      sh -c '
+        mkdir -p /git/nginx-collection &&
+        cp -a /src/nginx-collection/* /git/nginx-collection/ &&
+        cd /git/nginx-collection && 
+        rm -rf .git &&
+        git init -b main && 
+        git config receive.denyCurrentBranch ignore && 
+        git add . && 
+        git config user.name "Tester" && 
+        git config user.email "test@example.com" && 
+        git commit -m "Initial commit" && 
+        exec git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack
+      '
 
   othela:
     build:
@@ -23,9 +37,6 @@ services:
     environment:
       - HELV_TEST_REPO_URL=git://git-server:9418/nginx-collection
     volumes:
-      # Playbooks are read-only input. Mounted :ro so the container cannot write
-      # into the Go module tree even if it runs as root.
-      - ./tests/e2e/data/playbooks:/app/playbooks:ro
       # State goes to a named volume, never a bind mount. This is what keeps the
       # SQLite database out of the source tree; see ADR-0003.
       - othela-state:/app/state
@@ -36,7 +47,7 @@ services:
     command:
       - "./othela"
       - "--port=8080"
-      - "--playbook-dir=/app/playbooks"
+      - "--fleet-repo=git://git-server:9418/nginx-collection"
       - "--state-dir=/app/state"
       - "--log-level=info"
     restart: unless-stopped
