@@ -44,6 +44,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   any indication. Now, validation will fail at load time, requiring the operator to provide
   distinct selectors for each group. See [ADR-0004](docs/informations/ADRs/ADR-0004.md).
   ([#15](https://github.com/AlexanderSlokov/Helvilette/issues/15))
+* **BREAKING — `Job.PlaybookContent` removed from the wire format.** The field carried an
+  inline Ansible playbook and was the original delivery mechanism before GitOps references
+  (`RepoURL`, `PlaybookPath`, `Version`) replaced it. No production code path read or wrote
+  it; only tests and fallback constructors kept it alive. The agent now rejects a job that
+  carries neither `RepoURL` nor `PlaybookPath` with a clear error instead of silently writing
+  empty content to disk. All mock/fallback inline-content jobs in Othela have been deleted;
+  dispatch is driven entirely by manifest matching.
+  ([#25](https://github.com/AlexanderSlokov/Helvilette/issues/25))
 
 * **BREAKING — `--data-dir` removed, replaced by `--playbook-dir` and `--state-dir`.** The old
   flag named the directory Othela loads playbooks from, and also received the SQLite database at

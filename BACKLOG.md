@@ -20,8 +20,9 @@ These items are core to the Pivot direction and must be completed first.
 ### 3.1. Phase 2: GitOps Playbook Distribution (Agent Clone/Pull)
 Switch from Othela sending PlaybookContent to sending References for Agent to clone from Git.
 - [x] Job Struct Update: Update Job model with RepoURL, PlaybookPath, Version, and remove PlaybookContent.
-      Correction: the removal did not land. PlaybookContent is still declared in pkg/types/types.go
-      and referenced only by tests. Tracked in issue #25.
+      Resolved: PlaybookContent removed from pkg/types/types.go, all fallback/mock inline-content
+      jobs deleted from server.go, and the agent now rejects jobs with neither RepoURL nor
+      PlaybookPath. Tests rewritten to exercise the reference model. Issue #25.
 - [x] Agent Git Package (pkg/git): Implement pkg/git/cache.go and pkg/git/clone.go.
 - [x] Agent Execution Logic Update: Update ExecutePlaybook to check repo cache -> clone/pull -> run ansible-playbook from local path.
 - [x] E2E/Integration Tests: Ensure Othela sends reference -> Agent successfully pulls from local Gitea and executes.
