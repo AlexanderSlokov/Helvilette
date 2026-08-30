@@ -23,9 +23,6 @@ services:
     environment:
       - HELV_TEST_REPO_URL=git://git-server:9418/nginx-collection
     volumes:
-      # Playbooks are read-only input. Mounted :ro so the container cannot write
-      # into the Go module tree even if it runs as root.
-      - ./tests/e2e/data/playbooks:/app/playbooks:ro
       # State goes to a named volume, never a bind mount. This is what keeps the
       # SQLite database out of the source tree; see ADR-0003.
       - othela-state:/app/state
@@ -36,7 +33,7 @@ services:
     command:
       - "./othela"
       - "--port=8080"
-      - "--playbook-dir=/app/playbooks"
+      - "--fleet-repo=git://git-server:9418/nginx-collection"
       - "--state-dir=/app/state"
       - "--log-level=info"
     restart: unless-stopped

@@ -18,29 +18,66 @@ func setupTestDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 
-	playbookContent := `---
-- name: Test Playbook
-  hosts: localhost
-  tasks:
-    - name: Test task
-      debug:
-        msg: "Hello from test"
+	manifestContent := `apiVersion: helvilette.io/v1alpha1
+kind: PlaybookDeployment
+metadata:
+  name: test-deployment
+spec:
+  repo: git://git.example.com/repo
+  playbook: playbook.yml
+  nodeGroups:
+    - name: group1
+      nodeSelector:
+        role: proxy
 `
-	if err := os.WriteFile(filepath.Join(collectionDir, "playbook.yml"), []byte(playbookContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(collectionDir, "helvilette.yml"), []byte(manifestContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create another-collection with playbook.yml
+	// Create another-collection with helvilette.yml
 	anotherDir := filepath.Join(tmpDir, "another-collection")
 	if err := os.MkdirAll(anotherDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(anotherDir, "playbook.yml"), []byte("---\n- name: Another\n"), 0644); err != nil {
+	manifest2 := `apiVersion: helvilette.io/v1alpha1
+kind: PlaybookDeployment
+metadata:
+  name: another-deployment
+spec:
+  repo: git://git.example.com/repo
+  playbook: playbook.yml
+  nodeGroups:
+    - name: group1
+      nodeSelector:
+        role: web
+`
+	if err := os.WriteFile(filepath.Join(anotherDir, "helvilette.yml"), []byte(manifest2), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a directory without playbook.yml (should be ignored)
-	emptyDir := filepath.Join(tmpDir, "no-playbook")
+	// Create a nested collection with helvilette.yml
+	nestedDir := filepath.Join(tmpDir, "nested", "collection")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest3 := `apiVersion: helvilette.io/v1alpha1
+kind: PlaybookDeployment
+metadata:
+  name: nested-deployment
+spec:
+  repo: git://git.example.com/repo
+  playbook: playbook.yml
+  nodeGroups:
+    - name: group1
+      nodeSelector:
+        role: db
+`
+	if err := os.WriteFile(filepath.Join(nestedDir, "helvilette.yml"), []byte(manifest3), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a directory without helvilette.yml (should be ignored)
+	emptyDir := filepath.Join(tmpDir, "no-manifest")
 	if err := os.MkdirAll(emptyDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +87,7 @@ func setupTestDir(t *testing.T) string {
 	if err := os.MkdirAll(hiddenDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(hiddenDir, "playbook.yml"), []byte("---\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(hiddenDir, "helvilette.yml"), []byte(manifestContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -70,10 +107,10 @@ func TestScan_FindsAllPlaybooks(t *testing.T) {
 		t.Fatalf("Scan failed: %v", err)
 	}
 
-	// Should find exactly 2 playbooks (test-collection and another-collection)
-	// Should NOT include: no-playbook (no playbook.yml), .hidden (hidden dir)
-	if len(playbooks) != 2 {
-		t.Errorf("expected 2 playbooks, got %d", len(playbooks))
+	// Should find exactly 3 playbooks
+	// Should NOT include: no-manifest, .hidden (hidden dir)
+	if len(playbooks) != 3 {
+		t.Errorf("expected 3 playbooks, got %d", len(playbooks))
 	}
 
 	// Verify names
@@ -88,46 +125,8 @@ func TestScan_FindsAllPlaybooks(t *testing.T) {
 	if !names["another-collection"] {
 		t.Error("expected to find another-collection")
 	}
-}
-
-func TestLoad_ReadsContent(t *testing.T) {
-	tmpDir := setupTestDir(t)
-
-	loader, err := NewLoader(tmpDir)
-	if err != nil {
-		t.Fatalf("NewLoader failed: %v", err)
-	}
-
-	playbooks, err := loader.Scan()
-	if err != nil {
-		t.Fatalf("Scan failed: %v", err)
-	}
-
-	// Find test-collection
-	var testPB *Playbook
-	for i := range playbooks {
-		if playbooks[i].Name == "test-collection" {
-			testPB = &playbooks[i]
-			break
-		}
-	}
-
-	if testPB == nil {
-		t.Fatal("test-collection not found")
-	}
-
-	content, err := loader.Load(testPB.ID)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if content == "" {
-		t.Error("expected non-empty content")
-	}
-
-	// Verify content contains expected text
-	if len(content) < 10 {
-		t.Error("content too short")
+	if !names["nested/collection"] {
+		t.Error("expected to find nested/collection")
 	}
 }
 
@@ -179,27 +178,6 @@ func TestScan_EmptyDir(t *testing.T) {
 
 	if len(playbooks) != 0 {
 		t.Errorf("expected 0 playbooks in empty dir, got %d", len(playbooks))
-	}
-}
-
-func TestLoad_NotFound(t *testing.T) {
-	tmpDir := setupTestDir(t)
-
-	loader, err := NewLoader(tmpDir)
-	if err != nil {
-		t.Fatalf("NewLoader failed: %v", err)
-	}
-
-	// Must scan first to populate cache
-	_, err = loader.Scan()
-	if err != nil {
-		t.Fatalf("Scan failed: %v", err)
-	}
-
-	// Try to load non-existent playbook
-	_, err = loader.Load("non-existent-id")
-	if err != ErrNotFound {
-		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 

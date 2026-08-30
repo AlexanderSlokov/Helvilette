@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"helvilette/pkg/git"
 	"helvilette/pkg/manifest"
 	"helvilette/pkg/playbook"
 	"helvilette/pkg/storage"
@@ -153,6 +154,20 @@ func (s *Server) SetCurrentJob(job Job) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.currentJob = job
+}
+
+// GetPlaybooks returns the current playbooks
+func (s *Server) GetPlaybooks() []playbook.Playbook {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.playbooks
+}
+
+// SetPlaybooks sets the current playbooks
+func (s *Server) SetPlaybooks(playbooks []playbook.Playbook) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.playbooks = playbooks
 }
 
 // GetReports returns all received reports.
@@ -345,21 +360,54 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 
 // handlePlaybooks lists all available playbooks
 func (s *Server) handlePlaybooks(w http.ResponseWriter, r *http.Request) {
-	if s.loader == nil {
-		http.Error(w, "Playbook loader not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	playbooks, err := s.loader.Scan()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	playbooks := s.GetPlaybooks()
 
 	log.Printf("[PLAYBOOKS] Returning %d playbooks", len(playbooks))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(playbooks)
+}
+
+// StartFleetSync starts a background loop that pulls the fleet repo and updates playbooks
+func (s *Server) StartFleetSync(repo, branch, cacheDir string, interval time.Duration) {
+	syncFunc := func() {
+		err := git.EnsureRepo(repo, cacheDir, branch)
+		if err != nil {
+			log.Printf("[ERROR] Failed to sync fleet repository %s: %v", repo, err)
+			return
+		}
+
+		if s.loader == nil || s.loader.BaseDir() != cacheDir {
+			loader, err := playbook.NewLoader(cacheDir)
+			if err != nil {
+				log.Printf("[ERROR] Failed to create loader for %s: %v", cacheDir, err)
+				return
+			}
+			s.loader = loader
+		}
+
+		playbooks, err := s.loader.Scan()
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan playbooks: %v", err)
+			return
+		}
+
+		s.SetPlaybooks(playbooks)
+		if s.debugMode {
+			log.Printf("[DEBUG] Fleet sync complete, loaded %d playbooks", len(playbooks))
+		}
+	}
+
+	// Initial sync before starting the loop
+	syncFunc()
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			syncFunc()
+		}
+	}()
 }
 
 // GetLoader returns the playbook loader (for testing)

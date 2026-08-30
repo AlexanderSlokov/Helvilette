@@ -14,15 +14,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"helvilette/pkg/playbook"
 	"helvilette/pkg/storage"
 )
 
 var (
-	port        int
-	playbookDir string
-	stateDir    string
-	logLevel    string
+	port              int
+	fleetRepo         string
+	fleetBranch       string
+	fleetSyncInterval time.Duration
+	stateDir          string
+	logLevel          string
 )
 
 // The pre-ADR-0003 flag. Intercepted rather than silently ignored: it used to
@@ -30,15 +31,13 @@ var (
 // mapping it onto either replacement would be wrong half the time.
 // See docs/informations/ADRs/ADR-0003.md.
 const (
+	// Removed flags that break existing invocations
 	removedDataDirFlag      = "--data-dir"
 	removedDataDirShorthand = "-d"
+	removedPlaybookDirFlag  = "--playbook-dir"
 )
 
 const (
-	// Read-only playbook input. Relative so a development checkout works from
-	// the repository root without arguments.
-	defaultPlaybookDir = "helvilette/othela/data/playbooks"
-
 	// Writable state. FHS convention for variable state, which the systemd unit
 	// files in BACKLOG 3.5 will need; k3s keeps its SQLite store under the same
 	// scheme at /var/lib/rancher/k3s/server/db/state.db.
@@ -50,8 +49,12 @@ var rootCmd = &cobra.Command{
 	Short: "Control Plane of Helvilette",
 	Long:  `Helvilette Othela is the control plane of Helvilette fleet.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log.Printf("Starting Helvilette Othela with LogLevel: %s, PlaybookDir: %s, StateDir: %s, Port: %d",
-			logLevel, playbookDir, stateDir, port)
+		if fleetRepo == "" {
+			log.Fatalf("[FATAL] --fleet-repo is required")
+		}
+
+		log.Printf("Starting Helvilette Othela with LogLevel: %s, FleetRepo: %s, StateDir: %s, Port: %d",
+			logLevel, fleetRepo, stateDir, port)
 
 		addr := fmt.Sprintf(":%d", port)
 
@@ -77,16 +80,8 @@ var rootCmd = &cobra.Command{
 			closers = append(closers, sqliteStore)
 		}
 
-		// Playbook directory is read-only input. Othela never writes here.
-		loader, err := playbook.NewLoader(playbookDir)
-		if err != nil {
-			log.Printf("[WARN] Could not initialize playbook loader at %s: %v", playbookDir, err)
-			log.Printf("[WARN] Starting without playbook loading")
-		} else {
-			cfg.Loader = loader
-		}
-
 		server := NewServerWithConfig(cfg)
+		server.StartFleetSync(fleetRepo, fleetBranch, filepath.Join(stateDir, "fleet"), fleetSyncInterval)
 
 		httpServer := server.NewHTTPServer(addr)
 
@@ -134,8 +129,9 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.Flags().IntVarP(&port, "port", "p", 8080, "Port to listen on")
-	rootCmd.Flags().StringVar(&playbookDir, "playbook-dir", defaultPlaybookDir,
-		"Directory to load playbooks from. Read-only; Othela never writes here")
+	rootCmd.Flags().StringVar(&fleetRepo, "fleet-repo", "", "Git repository containing Helvilette manifests (required)")
+	rootCmd.Flags().StringVar(&fleetBranch, "fleet-branch", "main", "Branch of the fleet repository to sync")
+	rootCmd.Flags().DurationVar(&fleetSyncInterval, "fleet-sync-interval", 1*time.Minute, "Interval to sync the fleet repository")
 	rootCmd.Flags().StringVar(&stateDir, "state-dir", defaultStateDir,
 		"Directory for writable state (SQLite database, caches)")
 	rootCmd.Flags().StringVarP(&logLevel, "log-level", "l", "info", "Log level (debug, info, warn, error)")
@@ -151,14 +147,19 @@ func init() {
 //	if err := removedFlagError(os.Args[1:]); err != nil { ... }
 func removedFlagError(args []string) error {
 	for _, arg := range args {
+		if strings.HasPrefix(arg, removedPlaybookDirFlag) {
+			return fmt.Errorf(
+				"%s was removed. Othela now resolves playbooks by Git reference. Use --fleet-repo to specify the Git repository containing manifests.",
+				removedPlaybookDirFlag)
+		}
 		if !isRemovedDataDirArg(arg) {
 			continue
 		}
 		return fmt.Errorf(
 			"%s was removed: it named the playbook directory but also received the SQLite state at "+
-				"{data-dir}/server/db/state.db. Use --playbook-dir for read-only playbooks (default %q) "+
+				"{data-dir}/server/db/state.db. Use --fleet-repo for GitOps manifests "+
 				"and --state-dir for writable state (default %q).",
-			removedDataDirFlag, defaultPlaybookDir, defaultStateDir)
+			removedDataDirFlag, defaultStateDir)
 	}
 	return nil
 }

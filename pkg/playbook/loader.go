@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
-
-	"github.com/rs/zerolog"
 
 	"helvilette/pkg/log"
 	"helvilette/pkg/manifest"
@@ -55,78 +52,65 @@ func validateBaseDir(baseDir string) (string, error) {
 	return absPath, nil
 }
 
-// Scan discovers all playbooks in the base directory.
-// A playbook is identified by a directory containing a playbook.yml file.
+// Scan discovers all playbooks in the base directory recursively.
+// A playbook is identified by the presence of a helvilette.yml manifest.
 func (l *Loader) Scan() ([]Playbook, error) {
 	logger := log.WithComponent("playbook-loader")
 	l.playbooks = make(map[string]*Playbook)
-
-	entries, err := os.ReadDir(l.baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read base directory: %w", err)
-	}
-
 	var result []Playbook
-	for _, entry := range entries {
-		pb, ok := l.inspectDirEntry(entry, logger)
-		if !ok {
-			continue
+
+	err := filepath.Walk(l.baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			logger.Warn().Err(err).Str("path", path).Msg("failed to access path during scan")
+			return nil // continue walking
 		}
+
+		// Skip hidden directories (like .git, .hidden)
+		if info.IsDir() && len(info.Name()) > 0 && info.Name()[0] == '.' && path != l.baseDir {
+			return filepath.SkipDir
+		}
+
+		// We only care about helvilette.yml files
+		if info.IsDir() || info.Name() != "helvilette.yml" {
+			return nil
+		}
+
+		dirPath := filepath.Dir(path)
+		// Use relative path from baseDir as the name for identification
+		relPath, _ := filepath.Rel(l.baseDir, dirPath)
+		if relPath == "." {
+			relPath = "root" // edge case if helvilette.yml is at baseDir root
+		}
+
+		m, loadErr := manifest.ParseFile(path)
+		if loadErr != nil {
+			logger.Warn().Err(loadErr).Str("manifest", path).
+				Msg("rejected manifest, playbook will not be dispatched to any node")
+			return nil
+		}
+
+		pb := &Playbook{
+			ID:       GenerateID(relPath),
+			Name:     relPath,
+			Path:     relPath,
+			FullPath: path, // Keep path to manifest for reference
+			ModTime:  info.ModTime(),
+			Manifest: m,
+		}
+
+		logger.Debug().Str("id", pb.ID).Str("name", pb.Name).Str("manifest", path).Msg("discovered playbook manifest")
 		l.playbooks[pb.ID] = pb
 		result = append(result, *pb)
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan base directory: %w", err)
 	}
 
 	logger.Info().Int("count", len(result)).Msg("scan complete")
 	return result, nil
-}
-
-func (l *Loader) inspectDirEntry(entry os.DirEntry, logger zerolog.Logger) (*Playbook, bool) {
-	if shouldSkipEntry(entry) {
-		return nil, false
-	}
-
-	dirName := entry.Name()
-	playbookPath := filepath.Join(l.baseDir, dirName, "playbook.yml")
-	info, err := os.Stat(playbookPath)
-	if err != nil {
-		return nil, false
-	}
-
-	pb := buildPlaybook(dirName, playbookPath, info.ModTime(), l.loadManifest(dirName, logger))
-	logger.Debug().Str("id", pb.ID).Str("name", pb.Name).Str("path", pb.FullPath).Msg("discovered playbook")
-
-	return pb, true
-}
-
-func shouldSkipEntry(entry os.DirEntry) bool {
-	return !entry.IsDir() || entry.Name()[0] == '.'
-}
-
-func buildPlaybook(dirName, playbookPath string, modTime time.Time, m *manifest.Manifest) *Playbook {
-	return &Playbook{
-		ID:       GenerateID(dirName),
-		Name:     dirName,
-		Path:     dirName,
-		FullPath: playbookPath,
-		ModTime:  modTime,
-		Manifest: m,
-	}
-}
-
-func (l *Loader) loadManifest(dirName string, logger zerolog.Logger) *manifest.Manifest {
-	manifestPath := filepath.Join(l.baseDir, dirName, "helvilette.yml")
-	m, err := manifest.ParseFile(manifestPath)
-	if err == nil {
-		logger.Debug().Str("manifest", manifestPath).Msg("loaded manifest for playbook")
-		return m
-	}
-	if !os.IsNotExist(err) {
-		// Loud on purpose: without a manifest the playbook matches no nodeSelector,
-		// so it goes silently undeployed unless the operator sees this line.
-		logger.Warn().Err(err).Str("manifest", manifestPath).
-			Msg("rejected manifest, playbook will not be dispatched to any node")
-	}
-	return nil
 }
 
 // Get returns playbook metadata by ID.
@@ -138,22 +122,7 @@ func (l *Loader) Get(id string) (*Playbook, error) {
 	return pb, nil
 }
 
-// Load reads and returns the playbook content by ID.
-func (l *Loader) Load(id string) (string, error) {
-	pb, err := l.Get(id)
-	if err != nil {
-		return "", err
-	}
-
-	content, err := os.ReadFile(pb.FullPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read playbook: %w", err)
-	}
-
-	return string(content), nil
-}
-
-// GetByName returns playbook metadata by name (directory name).
+// GetByName returns playbook metadata by name (relative directory path).
 func (l *Loader) GetByName(name string) (*Playbook, error) {
 	for _, pb := range l.playbooks {
 		if pb.Name == name {

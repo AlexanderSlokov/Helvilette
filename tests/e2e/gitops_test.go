@@ -94,7 +94,7 @@ var _ = Describe("GitOps Workflow", func() {
 			Cmd: []string{
 				"./othela",
 				"--port=8080",
-				"--playbook-dir=/app/playbooks",
+				"--fleet-repo=git://git-server:9418/nginx-collection",
 				// State stays on the container filesystem. Bind-mounting it would
 				// put a writable path inside the Go module tree, which is what
 				// broke `go vet ./...` before ADR-0003.
@@ -103,13 +103,6 @@ var _ = Describe("GitOps Workflow", func() {
 			},
 			Env: map[string]string{
 				"HELV_TEST_REPO_URL": "git://git-server:9418/nginx-collection",
-			},
-			Mounts: testcontainers.ContainerMounts{
-				{
-					Source:   testcontainers.GenericBindMountSource{HostPath: absPlaybookPath},
-					Target:   testcontainers.ContainerMountTarget("/app/playbooks"),
-					ReadOnly: true,
-				},
 			},
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{

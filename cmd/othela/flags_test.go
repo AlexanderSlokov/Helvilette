@@ -38,7 +38,20 @@ func TestRemovedFlagError_MessageNamesBothReplacements(t *testing.T) {
 
 	// An operator hitting this must be able to fix the command without reading
 	// the source or the ADR, so both replacements and their defaults appear.
-	for _, want := range []string{"--playbook-dir", "--state-dir", defaultPlaybookDir, defaultStateDir} {
+	for _, want := range []string{"--fleet-repo", "--state-dir", defaultStateDir} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error message missing %q\ngot: %s", want, err.Error())
+		}
+	}
+}
+
+func TestRemovedFlagError_RejectsPlaybookDir(t *testing.T) {
+	err := removedFlagError([]string{"--playbook-dir=/srv/playbooks"})
+	if err == nil {
+		t.Fatal("removedFlagError() = nil, want an error")
+	}
+
+	for _, want := range []string{"--fleet-repo"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error message missing %q\ngot: %s", want, err.Error())
 		}
@@ -48,7 +61,7 @@ func TestRemovedFlagError_MessageNamesBothReplacements(t *testing.T) {
 func TestRemovedFlagError_AllowsCurrentFlags(t *testing.T) {
 	args := []string{
 		"--port=8080",
-		"--playbook-dir=/app/playbooks",
+		"--fleet-repo=git://git-server:9418/repo",
 		"--state-dir=/app/state",
 		"--log-level=debug",
 	}
