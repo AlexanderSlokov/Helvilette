@@ -119,7 +119,7 @@ func TestReadyzEndpoint_MethodNotAllowed(t *testing.T) {
 
 func TestHealthEndpoints_IndependentOfJobs(t *testing.T) {
 	// Health endpoints should work regardless of job state
-	server := NewServerWithJob(Job{JobID: "test-job", PlaybookContent: "test"})
+	server := NewServerWithJob(Job{JobID: "test-job", RepoURL: "git://git-server:9418/test", PlaybookPath: "playbook.yml"})
 
 	// /healthz should still work
 	req := httptest.NewRequest("GET", "/healthz", nil)

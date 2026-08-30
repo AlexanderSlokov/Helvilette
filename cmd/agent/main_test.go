@@ -59,8 +59,10 @@ func TestDefaultConfig(t *testing.T) {
 func TestAgent_Poll_Success(t *testing.T) {
 	// Create mock server
 	expectedJob := Job{
-		JobID:           "test-job-123",
-		PlaybookContent: "test content",
+		JobID:        "test-job-123",
+		RepoURL:      "git://git-server:9418/nginx-collection",
+		Version:      "main",
+		PlaybookPath: "playbook.yml",
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,8 +93,12 @@ func TestAgent_Poll_Success(t *testing.T) {
 		t.Errorf("JobID = %q, want %q", job.JobID, expectedJob.JobID)
 	}
 
-	if job.PlaybookContent != expectedJob.PlaybookContent {
-		t.Errorf("PlaybookContent = %q, want %q", job.PlaybookContent, expectedJob.PlaybookContent)
+	if job.RepoURL != expectedJob.RepoURL {
+		t.Errorf("RepoURL = %q, want %q", job.RepoURL, expectedJob.RepoURL)
+	}
+
+	if job.PlaybookPath != expectedJob.PlaybookPath {
+		t.Errorf("PlaybookPath = %q, want %q", job.PlaybookPath, expectedJob.PlaybookPath)
 	}
 }
 
@@ -213,30 +219,24 @@ func TestAgent_SendReport_ServerError(t *testing.T) {
 	}
 }
 
-func TestAgent_ExecutePlaybook_WritesFile(t *testing.T) {
+// TestAgent_ExecutePlaybook_RejectsEmptyJob verifies that a job with neither
+// RepoURL nor PlaybookPath is rejected with a clear error. Before issue #25
+// this branch silently wrote empty PlaybookContent to a temp file.
+func TestAgent_ExecutePlaybook_RejectsEmptyJob(t *testing.T) {
 	agent := NewAgent(DefaultConfig())
 
 	job := &Job{
-		JobID:           "test-write-123",
-		PlaybookContent: "test playbook content",
+		JobID: "test-empty-123",
 	}
 
-	// This will fail because ansible-playbook is not available in test
-	// but we can verify the file was written
-	agent.ExecutePlaybook(job)
-
-	tmpFile := filepath.Join(agent.config.WorkspaceDir, "helvilette_job_"+job.JobID+".yml")
-	data, err := os.ReadFile(tmpFile)
-	if err != nil {
-		t.Fatalf("failed to read playbook file: %v", err)
+	status, output := agent.ExecutePlaybook(job)
+	if status != "Failed" {
+		t.Errorf("expected status %q, got %q", "Failed", status)
 	}
 
-	if string(data) != job.PlaybookContent {
-		t.Errorf("file content = %q, want %q", string(data), job.PlaybookContent)
+	if len(output) == 0 {
+		t.Fatal("expected non-empty error output")
 	}
-
-	// Cleanup
-	os.Remove(tmpFile)
 }
 
 func TestAgent_ProcessJob_SkipsSameJob(t *testing.T) {
@@ -257,8 +257,9 @@ func TestAgent_ProcessJob_SkipsSameJob(t *testing.T) {
 	agent.lastJobID = "job-123"
 
 	job := &Job{
-		JobID:           "job-123",
-		PlaybookContent: "content",
+		JobID:        "job-123",
+		RepoURL:      "git://git-server:9418/test",
+		PlaybookPath: "playbook.yml",
 	}
 
 	err := agent.ProcessJob(job)

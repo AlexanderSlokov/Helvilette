@@ -21,8 +21,10 @@ func registerNode(server *Server, nodeID string, labels map[string]string) {
 
 func TestSyncEndpoint(t *testing.T) {
 	job := Job{
-		JobID:           "test-job-123",
-		PlaybookContent: "test playbook content",
+		JobID:        "test-job-123",
+		RepoURL:      "git://git-server:9418/nginx-collection",
+		Version:      "main",
+		PlaybookPath: "playbook.yml",
 	}
 	server := NewServerWithJob(job)
 
@@ -52,13 +54,13 @@ func TestSyncEndpoint(t *testing.T) {
 		t.Errorf("expected JobID %q, got %q", job.JobID, resultJob.JobID)
 	}
 
-	if resultJob.PlaybookContent != job.PlaybookContent {
-		t.Errorf("expected PlaybookContent %q, got %q", job.PlaybookContent, resultJob.PlaybookContent)
+	if resultJob.RepoURL != job.RepoURL {
+		t.Errorf("expected RepoURL %q, got %q", job.RepoURL, resultJob.RepoURL)
 	}
 }
 
 func TestSyncEndpoint_DifferentNodeIDs(t *testing.T) {
-	server := NewServerWithJob(Job{JobID: "job-1", PlaybookContent: "content"})
+	server := NewServerWithJob(Job{JobID: "job-1", RepoURL: "git://git-server:9418/test", PlaybookPath: "playbook.yml"})
 
 	nodeIDs := []string{"node-1", "node-2", "agent-alpha"}
 	for _, nodeID := range nodeIDs {
@@ -176,8 +178,9 @@ func TestSetCurrentJob(t *testing.T) {
 	server := NewServer()
 
 	newJob := Job{
-		JobID:           "new-job-456",
-		PlaybookContent: "new content",
+		JobID:        "new-job-456",
+		RepoURL:      "git://git-server:9418/test",
+		PlaybookPath: "playbook.yml",
 	}
 	server.SetCurrentJob(newJob)
 
