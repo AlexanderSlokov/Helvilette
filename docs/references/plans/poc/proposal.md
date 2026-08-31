@@ -291,7 +291,7 @@ REST API:
 | Taints & Tolerations | Scheduling constraints | Production protection |
 | Events | Audit trail | PlaybookApplied, DriftDetected, SelfHealed |
 | Rolling Update Strategy | Deployment strategy | Update nodes sequentially with health checks |
-| Annotations | Metadata | `helvilette.io/last-applied`, `helvilette.io/rollback-to` |
+| Annotations | Metadata | `helvilette.naughtian.org/last-applied`, `helvilette.naughtian.org/rollback-to` |
 
 ## Impacts / Key Questions
 
@@ -361,7 +361,7 @@ REST API:
 ### Update/Rollback Compatibility
 
 - Rollback via `git revert` — agents pull previous version on next poll
-- Planned: `helvilette.io/rollback-to` annotation for targeted version pinning
+- Planned: `helvilette.naughtian.org/rollback-to` annotation for targeted version pinning
 - Backward compatibility maintained through `omitempty` JSON fields in Job struct
 
 ### Scalability

@@ -18,7 +18,7 @@ func setupTestDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 
-	manifestContent := `apiVersion: helvilette.io/v1alpha1
+	manifestContent := `apiVersion: helvilette.naughtian.org/v1alpha1
 kind: PlaybookDeployment
 metadata:
   name: test-deployment
@@ -39,7 +39,7 @@ spec:
 	if err := os.MkdirAll(anotherDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	manifest2 := `apiVersion: helvilette.io/v1alpha1
+	manifest2 := `apiVersion: helvilette.naughtian.org/v1alpha1
 kind: PlaybookDeployment
 metadata:
   name: another-deployment
@@ -60,7 +60,7 @@ spec:
 	if err := os.MkdirAll(nestedDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	manifest3 := `apiVersion: helvilette.io/v1alpha1
+	manifest3 := `apiVersion: helvilette.naughtian.org/v1alpha1
 kind: PlaybookDeployment
 metadata:
   name: nested-deployment

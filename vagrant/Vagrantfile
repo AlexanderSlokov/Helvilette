@@ -1,0 +1,34 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "debian/bookworm64"
+
+  # Use rsync instead of NFS for synced folders to avoid requiring nfsd on host
+  config.vm.synced_folder "..", "/vagrant", type: "rsync"
+
+  # Use libvirt as the default provider for KVM/QEMU
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.memory = 1024
+    libvirt.cpus = 1
+  end
+
+  config.vm.define "othela" do |othela|
+    othela.vm.hostname = "othela-node"
+    othela.vm.network "private_network", ip: "192.168.121.10"
+  end
+
+  config.vm.define "agent1" do |agent1|
+    agent1.vm.hostname = "agent-node-1"
+    agent1.vm.network "private_network", ip: "192.168.121.11"
+  end
+
+  # Ansible provisioning
+  config.vm.provision "ansible" do |ansible|
+    ansible.playbook = "helvilette-setup.yml"
+    ansible.groups = {
+      "othela" => ["othela"],
+      "agents" => ["agent1"]
+    }
+  end
+end

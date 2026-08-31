@@ -30,7 +30,7 @@ Switch from Othela sending PlaybookContent to sending References for Agent to cl
 ### 3.2. Node Targeting & Label-Based Routing
 Distribute Jobs based on Node Labels and Registration.
 - [x] pkg/manifest package: Parse helvilette.yml into Go structs.
-- [x] Manifest schema identity: apiVersion helvilette.io/v1alpha1, kind PlaybookDeployment.
+- [x] Manifest schema identity: apiVersion helvilette.naughtian.org/v1alpha1, kind PlaybookDeployment.
 - [x] Manifest validation: Verify apiVersion, kind, and required fields upon loading. Reject invalid manifests with clear messages stating the invalid field, its value, and expected shape.
 - [x] Agent labels config: Add Labels map[string]string to AgentConfiguration (CLI --labels, YAML config, ENV AGENT_LABELS).
 - [x] Node Registration API: POST /api/v1/nodes/register. Agent sends nodeID and labels, Othela saves to registry.
@@ -168,7 +168,7 @@ Log rich, display poor. Store events as JSONL; display only what is necessary.
 - [ ] Fallback mechanism when Chisel tunnel breaks.
 
 ### 4.3. Ansible Playbook & Bash Install/Uninstall Scripts
-- [ ] Bash install script (get.helvilette.io).
+- [ ] Bash install script (get.helvilette.naughtian.org).
 - [ ] Ansible playbook for bootstrap.
 - [ ] Auto-generate uninstall script during installation.
 - [ ] Support non-interactive script execution via INSTALL_HELVILETTE_* environment variables.
@@ -313,3 +313,10 @@ Four failure-based runs to validate correct behavior during chaos:
 ### 7.2. Concorde & Hot-patch Test
 - [ ] Implement hot-patch test: restart Othela while 50 agents are actively running jobs to ensure no jobs are lost.
 - [ ] Implement Concorde test framework: run a 500-node simulated fleet to evaluate incident response time window and system stability under stress.
+
+## 8. First Light Remediation
+
+- [ ] Issue #31: Standardize Othela startup logs to structured JSON exclusively. Remove plain-text log calls from control plane.
+- [ ] Issue #32: Add periodic polling or webhook receiver for `--fleet-repo` in Othela to detect new commits and dispatch jobs.
+- [ ] Issue #33: Fix unknown flag `--fleet-repo` in E2E. The `docker-compose.e2e.yaml` uses `--fleet-repo` which Othela CLI does not actually support. Either implement the flag or update the E2E setup.
+- [ ] Issue #34: Fix playbook loader silent skip. Othela `loader.go` silently ignores playbooks (returns `count: 0`) under certain directory conditions without emitting any `Warn` logs, making debugging difficult. Add proper trace logging.

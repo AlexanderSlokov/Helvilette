@@ -1,0 +1,163 @@
+---
+- name: Prepare Helvilette Nodes
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install dependencies (Go, Git, Make)
+      apt:
+        name:
+          - golang-go
+          - git
+          - make
+        state: present
+        update_cache: yes
+
+    - name: Ensure bin directory exists
+      file:
+        path: /vagrant/bin
+        state: directory
+        mode: '0700'
+      become: false
+
+    - name: Build Helvilette binaries
+      command: make build
+      args:
+        chdir: /vagrant
+        creates: /vagrant/bin/othela
+      become: false
+
+    - name: Install Helvilette binaries globally
+      copy:
+        src: "/vagrant/bin/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        remote_src: yes
+        mode: '0755'
+      loop:
+        - othela
+        - agent
+
+- name: Setup Othela Node
+  hosts: othela
+  become: yes
+  tasks:
+    - name: Create Othela user
+      user:
+        name: helvilette
+        system: yes
+
+    - name: Create data directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: helvilette
+        group: helvilette
+        mode: '0700'
+      loop:
+        - /var/lib/helvilette/othela
+        - /var/lib/helvilette/playbooks
+
+    - name: Create Othela systemd service
+      copy:
+        dest: /etc/systemd/system/othela.service
+        content: |
+          [Unit]
+          Description=Helvilette Othela Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=helvilette
+          ExecStart=/usr/local/bin/othela --port=8080 --state-dir=/var/lib/helvilette/othela --fleet-repo=http://192.168.121.10:3000/helvi-test/baseline.git
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start Othela
+      systemd:
+        name: othela
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+- name: Setup Agent Node
+  hosts: agents
+  become: yes
+  tasks:
+    - name: Install Ansible (required by agent)
+      apt:
+        name: ansible
+        state: present
+        update_cache: yes
+
+    - name: Create Agent systemd service
+      copy:
+        dest: /etc/systemd/system/helvi-agent.service
+        content: |
+          [Unit]
+          Description=Helvilette Agent
+          After=network.target
+
+          [Service]
+          Type=simple
+          # Running as root since the agent modifies system state via ansible
+          ExecStart=/usr/local/bin/agent --othela-url=http://192.168.121.10:8080/api/v1 --node-id={{ ansible_hostname }} --poll-interval=5s
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start Agent
+      systemd:
+        name: helvi-agent
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+- name: Setup Gitea on Othela Node
+  hosts: othela
+  become: yes
+  tasks:
+    - name: Install Docker
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        update_cache: yes
+
+    - name: Create Gitea directory
+      file:
+        path: /opt/gitea
+        state: directory
+        mode: '0755'
+
+    - name: Create Gitea docker-compose.yml
+      copy:
+        dest: /opt/gitea/docker-compose.yml
+        content: |
+          services:
+            gitea:
+              image: gitea/gitea:1.22
+              container_name: gitea
+              restart: unless-stopped
+              environment:
+                - GITEA__database__DB_TYPE=sqlite3
+                - GITEA__server__ROOT_URL=http://192.168.121.10:3000/
+              volumes:
+                - ./gitea-data:/data
+              ports:
+                - "3000:3000"
+                - "2222:22"
+
+    - name: Start Gitea
+      command: docker-compose up -d
+      args:
+        chdir: /opt/gitea
+
+    - name: Start Gitea
+      command: docker-compose up -d
+      args:
+        chdir: /opt/gitea

@@ -11,7 +11,7 @@ import (
 
 func TestParseFile(t *testing.T) {
 	content := `
-apiVersion: helvilette.io/v1alpha1
+apiVersion: helvilette.naughtian.org/v1alpha1
 kind: PlaybookDeployment
 metadata:
   name: test-app
@@ -72,7 +72,7 @@ spec:
 		{
 			name: "stale kind from an older schema",
 			content: `
-apiVersion: helvilette.io/v1alpha1
+apiVersion: helvilette.naughtian.org/v1alpha1
 kind: Cluster
 metadata:
   name: test-app
@@ -88,7 +88,7 @@ spec:
 		{
 			name: "nodeGroups misspelled, so no group is parsed",
 			content: `
-apiVersion: helvilette.io/v1alpha1
+apiVersion: helvilette.naughtian.org/v1alpha1
 kind: PlaybookDeployment
 metadata:
   name: test-app
@@ -104,7 +104,7 @@ spec:
 		{
 			name: "nodeSelector omitted, so the group matches nothing",
 			content: `
-apiVersion: helvilette.io/v1alpha1
+apiVersion: helvilette.naughtian.org/v1alpha1
 kind: PlaybookDeployment
 metadata:
   name: test-app

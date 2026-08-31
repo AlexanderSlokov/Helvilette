@@ -1743,9 +1743,9 @@ events:
 ```yaml
 metadata:
   annotations:
-    helvilette.io/last-applied: "2026-06-10T23:30:00Z"
-    helvilette.io/drift-check-interval: "5m"
-    helvilette.io/rollback-to: "abc123f"     # Git SHA to rollback
+    helvilette.naughtian.org/last-applied: "2026-06-10T23:30:00Z"
+    helvilette.naughtian.org/drift-check-interval: "5m"
+    helvilette.naughtian.org/rollback-to: "abc123f"     # Git SHA to rollback
 ```
 
 ### Steal later, nhưng cực mạnh 🔴
