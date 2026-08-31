@@ -30,7 +30,7 @@ Switch from Othela sending PlaybookContent to sending References for Agent to cl
 ### 3.2. Node Targeting & Label-Based Routing
 Distribute Jobs based on Node Labels and Registration.
 - [x] pkg/manifest package: Parse helvilette.yml into Go structs.
-- [x] Manifest schema identity: apiVersion helvilette.io/v1alpha1, kind PlaybookDeployment.
+- [x] Manifest schema identity: apiVersion helvilette.naughtian.org/v1alpha1, kind PlaybookDeployment.
 - [x] Manifest validation: Verify apiVersion, kind, and required fields upon loading. Reject invalid manifests with clear messages stating the invalid field, its value, and expected shape.
 - [x] Agent labels config: Add Labels map[string]string to AgentConfiguration (CLI --labels, YAML config, ENV AGENT_LABELS).
 - [x] Node Registration API: POST /api/v1/nodes/register. Agent sends nodeID and labels, Othela saves to registry.
@@ -168,7 +168,7 @@ Log rich, display poor. Store events as JSONL; display only what is necessary.
 - [ ] Fallback mechanism when Chisel tunnel breaks.
 
 ### 4.3. Ansible Playbook & Bash Install/Uninstall Scripts
-- [ ] Bash install script (get.helvilette.io).
+- [ ] Bash install script (get.helvilette.naughtian.org).
 - [ ] Ansible playbook for bootstrap.
 - [ ] Auto-generate uninstall script during installation.
 - [ ] Support non-interactive script execution via INSTALL_HELVILETTE_* environment variables.

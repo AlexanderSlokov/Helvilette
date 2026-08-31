@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 * Othela now resolves playbooks (manifests) exclusively by Git reference. The `--playbook-dir` flag has been removed and replaced by `--fleet-repo` (required) and `--fleet-branch`. This completes the GitOps transition described in ADR-0003 and Issue #24.
 
+* **BREAKING — API group domain migration.** The manifest `apiVersion` group changed from `helvilette.io` to `helvilette.naughtian.org`. All manifests must use `apiVersion: helvilette.naughtian.org/v1alpha1`. The previous domain was never registered to this project; the new group uses a subdomain of the project-owned `naughtian.org` domain, which is the strictly correct convention per ADR-0002.
+
 ### Added
 
 * `helvilette.yml` is now validated when it is loaded. `apiVersion` and `kind` must match
@@ -79,7 +81,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ([#20](https://github.com/AlexanderSlokov/Helvilette/issues/20))
 
 * **BREAKING — manifest schema identity.** `helvilette.yml` now requires
-  `apiVersion: helvilette.io/v1alpha1` and `kind: PlaybookDeployment`, replacing the previous
+  `apiVersion: helvilette.naughtian.org/v1alpha1` and `kind: PlaybookDeployment`, replacing the previous
   `apps/v1` / `Cluster`. `apps/v1` is an occupied Kubernetes in-tree group and the domain-less
   form is a 1.x holdover, not a pattern for new groups; projects file their own kinds under a
   domain they own, as k3s does with `k3s.cattle.io` and `helm.cattle.io`. `v1alpha1` reflects

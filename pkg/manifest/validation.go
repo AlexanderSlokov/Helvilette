@@ -10,7 +10,7 @@ import "fmt"
 // spec.vault and nodeGroups[].probes are still declared-but-unenforced, so the
 // schema may still change. See ADR-0002 and issue #1.
 const (
-	SupportedAPIVersion = "helvilette.io/v1alpha1"
+	SupportedAPIVersion = "helvilette.naughtian.org/v1alpha1"
 	SupportedKind       = "PlaybookDeployment"
 )
 

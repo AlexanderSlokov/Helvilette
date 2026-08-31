@@ -54,7 +54,7 @@ Helvilette clone gần như **1:1** bộ API conventions của K8s:
 
 ```yaml
 # helvilette.yml — nhìn giống K8s manifest đến mức uncanny
-apiVersion: helvilette.io/v1alpha1  # ← K8s apiVersion, group riêng như k3s.cattle.io
+apiVersion: helvilette.naughtian.org/v1alpha1  # ← K8s apiVersion, group riêng như k3s.cattle.io
 kind: PlaybookDeployment            # ← K8s kind
 metadata:                  # ← K8s metadata
   name: "..."
@@ -96,7 +96,7 @@ Còn **nhiều K8s pattern nữa** đang nằm trong roadmap:
 - `Taints & Tolerations` → Production protection
 - `Events` → `PlaybookApplied`, `DriftDetected`, `SelfHealed`
 - `Rolling Update Strategy` → Sequential node updates
-- `Annotations` → `helvilette.io/last-applied`, `helvilette.io/rollback-to`
+- `Annotations` → `helvilette.naughtian.org/last-applied`, `helvilette.naughtian.org/rollback-to`
 
 > **Verdict:** Kubernetes là bố ruột. Helvilette kế thừa từ API surface, architecture, configuration model, đến health check conventions, và thậm chí cả tên gọi concept (`nodeSelector`, `livenessProbe`, `nodeGroup`).
 

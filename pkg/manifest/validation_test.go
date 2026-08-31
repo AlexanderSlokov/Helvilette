@@ -39,7 +39,7 @@ func TestValidateRejectsMissingFields(t *testing.T) {
 		{
 			name:        "empty apiVersion",
 			mutate:      func(m *Manifest) { m.APIVersion = "" },
-			wantMessage: `unsupported apiVersion "", expected "helvilette.io/v1alpha1"`,
+			wantMessage: `unsupported apiVersion "", expected "helvilette.naughtian.org/v1alpha1"`,
 		},
 		{
 			name:        "empty kind",

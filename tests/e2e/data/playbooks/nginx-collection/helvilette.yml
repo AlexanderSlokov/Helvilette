@@ -1,6 +1,6 @@
 # nginx-collection/helvilette.yml
 # File này được xem là global inventory cho toàn bộ playbook,
-apiVersion: helvilette.io/v1alpha1
+apiVersion: helvilette.naughtian.org/v1alpha1
 kind: PlaybookDeployment
 metadata:
   name: "my-company-edge-proxy-fleet"
