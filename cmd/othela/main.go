@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"helvilette/pkg/log"
 	"helvilette/pkg/storage"
 )
 
@@ -49,21 +49,26 @@ var rootCmd = &cobra.Command{
 	Short: "Control Plane of Helvilette",
 	Long:  `Helvilette Othela is the control plane of Helvilette fleet.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		log.SetLevel(logLevel)
+		logger := log.WithComponent("othela")
+
 		if fleetRepo == "" {
-			log.Fatalf("[FATAL] --fleet-repo is required")
+			logger.Fatal().Str("flag", "--fleet-repo").Msg("required flag not set")
 		}
 
-		log.Printf("Starting Helvilette Othela with LogLevel: %s, FleetRepo: %s, StateDir: %s, Port: %d",
-			logLevel, fleetRepo, stateDir, port)
+		logger.Info().
+			Str("log_level", logLevel).
+			Str("fleet_repo", fleetRepo).
+			Str("state_dir", stateDir).
+			Int("port", port).
+			Msg("starting othela")
 
 		addr := fmt.Sprintf(":%d", port)
 
 		// Track resources that need cleanup on shutdown
 		var closers []io.Closer
 
-		cfg := ServerConfig{
-			DebugMode: logLevel == "debug",
-		}
+		cfg := ServerConfig{}
 
 		// State lives under --state-dir, not in --playbook-dir. Keeping the
 		// database out of the playbook directory is what stops Othela writing
@@ -71,10 +76,10 @@ var rootCmd = &cobra.Command{
 		dbPath := filepath.Join(stateDir, "db", "state.db")
 		sqliteStore, err := storage.NewSQLiteStore(dbPath)
 		if err != nil {
-			log.Printf("[WARN] Could not initialize SQLite at %s: %v", dbPath, err)
-			log.Printf("[WARN] Falling back to in-memory storage")
+			logger.Warn().Err(err).Str("db_path", dbPath).
+				Msg("could not initialize SQLite, falling back to in-memory storage — check directory exists and is writable, or use --state-dir")
 		} else {
-			log.Printf("[STORAGE] SQLite initialized at %s", dbPath)
+			logger.Info().Str("db_path", dbPath).Msg("sqlite initialized")
 			cfg.NodeStore = sqliteStore
 			cfg.ReportStore = sqliteStore
 			closers = append(closers, sqliteStore)
@@ -92,38 +97,38 @@ var rootCmd = &cobra.Command{
 		// Start serving in a goroutine
 		errChan := make(chan error, 1)
 		go func() {
-			log.Printf("Helvilette Othela is listening on %s...", addr)
+			logger.Info().Str("addr", addr).Msg("othela listening")
 			errChan <- httpServer.ListenAndServe()
 		}()
 
 		// Block until signal or server error
 		select {
 		case sig := <-sigChan:
-			log.Printf("[SHUTDOWN] Received signal: %v", sig)
+			logger.Info().Str("signal", sig.String()).Msg("received shutdown signal")
 		case err := <-errChan:
-			log.Fatalf("Server failed unexpectedly: %v", err)
+			logger.Fatal().Err(err).Msg("server failed unexpectedly")
 		}
 
 		// Mark server as not ready so readiness probes fail during drain
 		server.SetReady(false)
-		log.Printf("[SHUTDOWN] Marked this Helvilette Othela as not-ready, draining connections...")
+		logger.Info().Msg("marked not-ready, draining connections")
 
 		// Give in-flight requests time to complete
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
 		if err := httpServer.Shutdown(ctx); err != nil {
-			log.Fatalf("[SHUTDOWN] Graceful shutdown failed: %v", err)
+			logger.Fatal().Err(err).Msg("graceful shutdown failed")
 		}
 
 		// Close storage backends (SQLite, etc.)
 		for _, c := range closers {
 			if err := c.Close(); err != nil {
-				log.Printf("[SHUTDOWN] Error closing resource: %v", err)
+				logger.Error().Err(err).Msg("failed to close resource during shutdown")
 			}
 		}
 
-		log.Printf("[SHUTDOWN] Othela stopped gracefully.")
+		logger.Info().Msg("othela stopped gracefully")
 	},
 }
 

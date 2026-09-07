@@ -12,6 +12,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 * **BREAKING — API group domain migration.** The manifest `apiVersion` group changed from `helvilette.io` to `helvilette.naughtian.org`. All manifests must use `apiVersion: helvilette.naughtian.org/v1alpha1`. The previous domain was never registered to this project; the new group uses a subdomain of the project-owned `naughtian.org` domain, which is the strictly correct convention per ADR-0002.
 
+### Changed
+
+* **Othela logging migrated from stdlib `log` to structured JSON (zerolog).**
+  All `log.Printf` / `log.Fatalf` calls in `cmd/othela/` have been replaced with
+  structured zerolog calls via `helvilette/pkg/log`. Log output is now exclusively
+  JSON in production (or human-readable when `HELVILETTE_DEV=1`), consistent with
+  the Agent. The `--log-level` flag now connects to zerolog global level filtering
+  instead of only toggling a `debugMode` boolean. The `DebugMode` field has been
+  removed from `ServerConfig`, and the `SetDebug()` method has been removed from
+  `Server`. Error messages now include actionable context (e.g. which flag to check,
+  which directory to verify).
+  ([#31](https://github.com/AlexanderSlokov/Helvilette/issues/31))
+
 ### Added
 
 * `helvilette.yml` is now validated when it is loaded. `apiVersion` and `kind` must match

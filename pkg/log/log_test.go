@@ -3,7 +3,6 @@ package log
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 
@@ -99,39 +98,24 @@ func TestLoggerJSONOutput(t *testing.T) {
 	}
 }
 
-func TestLogLevelFromEnv(t *testing.T) {
+func TestSetLevel(t *testing.T) {
 	tests := []struct {
-		envValue      string
+		input         string
 		expectedLevel zerolog.Level
 	}{
 		{"debug", zerolog.DebugLevel},
 		{"warn", zerolog.WarnLevel},
 		{"error", zerolog.ErrorLevel},
 		{"info", zerolog.InfoLevel},
-		{"", zerolog.InfoLevel}, // default
+		{"", zerolog.InfoLevel},        // default
+		{"garbage", zerolog.InfoLevel}, // unrecognized defaults to info
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.envValue, func(t *testing.T) {
-			os.Setenv("HELVILETTE_LOG_LEVEL", tt.envValue)
-			defer os.Unsetenv("HELVILETTE_LOG_LEVEL")
-
-			// Re-run the level setting logic
-			level := os.Getenv("HELVILETTE_LOG_LEVEL")
-			var resultLevel zerolog.Level
-			switch level {
-			case "debug":
-				resultLevel = zerolog.DebugLevel
-			case "warn":
-				resultLevel = zerolog.WarnLevel
-			case "error":
-				resultLevel = zerolog.ErrorLevel
-			default:
-				resultLevel = zerolog.InfoLevel
-			}
-
-			if resultLevel != tt.expectedLevel {
-				t.Errorf("expected level %v, got %v", tt.expectedLevel, resultLevel)
+		t.Run(tt.input, func(t *testing.T) {
+			SetLevel(tt.input)
+			if zerolog.GlobalLevel() != tt.expectedLevel {
+				t.Errorf("SetLevel(%q): expected %v, got %v", tt.input, tt.expectedLevel, zerolog.GlobalLevel())
 			}
 		})
 	}

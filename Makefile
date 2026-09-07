@@ -2,7 +2,7 @@
 # ===================
 
 .PHONY: all build test test-verbose test-cover cover-html clean clean-e2e \
-        run-othela run-agent run-agent-prod up down logs seed e2e tidy \
+        run-othela run-othela-prod run-agent run-agent-prod up down logs seed e2e tidy \
         fmt fmt-check lint
 
 # Go packages that make up the shippable code. Deliberately excludes
@@ -42,8 +42,12 @@ cover-html:
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
-# Run Othela Control Plane
+# Run Othela Control Plane (dev mode with human-readable logs)
 run-othela:
+	HELVILETTE_DEV=1 go run ./cmd/othela
+
+# Run Othela Control Plane (production mode with JSON logs)
+run-othela-prod:
 	go run ./cmd/othela
 
 # Run Agent (dev mode with human-readable logs)
