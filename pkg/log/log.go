@@ -23,7 +23,18 @@ func init() {
 	}
 
 	// Set global log level from env
-	level := os.Getenv("HELVILETTE_LOG_LEVEL")
+	SetLevel(os.Getenv("HELVILETTE_LOG_LEVEL"))
+}
+
+// SetLevel sets the global zerolog level from a string.
+// Accepted values: "debug", "info", "warn", "error". Unrecognized values
+// default to info. Call this from CLI flag parsing to connect --log-level
+// to the logging subsystem.
+//
+// Usage:
+//
+//	log.SetLevel("debug")
+func SetLevel(level string) {
 	switch level {
 	case "debug":
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)

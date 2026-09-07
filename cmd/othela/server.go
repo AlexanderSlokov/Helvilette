@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -13,11 +12,15 @@ import (
 	"github.com/gorilla/mux"
 
 	"helvilette/pkg/git"
+	"helvilette/pkg/log"
 	"helvilette/pkg/manifest"
 	"helvilette/pkg/playbook"
 	"helvilette/pkg/storage"
 	"helvilette/pkg/types"
 )
+
+// Package-level logger for all Othela server operations.
+var logger = log.WithComponent("othela")
 
 // Type aliases for backward compatibility within this package
 type Job = types.Job
@@ -33,7 +36,6 @@ type Server struct {
 	reportStore storage.ReportStore
 	mu          sync.RWMutex // protects currentJob and playbooks only
 	ready       atomic.Bool  // readiness probe state
-	debugMode   bool
 }
 
 // NewServer creates a new Othela server with default configuration.
@@ -90,7 +92,6 @@ type ServerConfig struct {
 	NodeStore   storage.NodeStore
 	ReportStore storage.ReportStore
 	Loader      *playbook.Loader
-	DebugMode   bool
 }
 
 // NewServerWithConfig creates a Server with externally provided dependencies.
@@ -110,7 +111,6 @@ func NewServerWithConfig(cfg ServerConfig) *Server {
 		loader:      cfg.Loader,
 		nodeStore:   nodeStore,
 		reportStore: reportStore,
-		debugMode:   cfg.DebugMode,
 	}
 	s.ready.Store(true)
 
@@ -177,11 +177,6 @@ func (s *Server) GetReports() []Report {
 	return reports
 }
 
-// SetDebug enables or disables debug logging
-func (s *Server) SetDebug(debug bool) {
-	s.debugMode = debug
-}
-
 type NodeRegistration struct {
 	NodeID string            `json:"node_id"`
 	Labels map[string]string `json:"labels"`
@@ -196,7 +191,7 @@ func (s *Server) handleRegisterNode(w http.ResponseWriter, r *http.Request) {
 
 	s.nodeStore.Register(req.NodeID, req.Labels)
 
-	log.Printf("[REGISTER] Node %s registered with labels %v", req.NodeID, req.Labels)
+	logger.Info().Str("node_id", req.NodeID).Any("labels", req.Labels).Msg("node registered")
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -208,9 +203,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["node_id"]
 
-	if s.debugMode {
-		log.Printf("[DEBUG] [SYNC] Node %s is asking for work...", nodeID)
-	}
+	logger.Debug().Str("node_id", nodeID).Msg("node polling for work")
 
 	if !s.nodeStore.IsRegistered(nodeID) {
 		http.Error(w, "node not registered, call POST /api/v1/nodes/register first", http.StatusForbidden)
@@ -276,9 +269,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 
 	if matchedJob == nil {
 		// Graceful idle: No matching nodeGroups
-		if s.debugMode {
-			log.Printf("[DEBUG] Node %s has labels %v, but no nodeSelectors matched", nodeID, labels)
-		}
+		logger.Debug().Str("node_id", nodeID).Any("labels", labels).Msg("no matching node selectors")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -325,21 +316,22 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.reportStore.Save(report); err != nil {
-		log.Printf("[ERROR] Failed to save report: %v", err)
+		logger.Error().Err(err).Str("node_id", report.NodeID).Str("job_id", report.JobID).Msg("failed to save report")
 	}
 
 	// Update node status based on the report
 	if report.NodeStatus.JobID != "" {
 		if err := s.nodeStore.UpdateStatus(report.NodeID, report.NodeStatus, report.ObservedAt); err != nil {
-			log.Printf("[ERROR] Failed to update node status: %v", err)
+			logger.Error().Err(err).Str("node_id", report.NodeID).Str("job_id", report.JobID).Msg("failed to update node status")
 		}
 	}
 
-	log.Printf("---------------------------------------------------")
-	log.Printf("[REPORT] Received Report from Node: %s, Job: %s", report.NodeID, report.JobID)
-	log.Printf("[REPORT] Status: %s", report.Status)
-	log.Printf("[REPORT] Full Output (JSON):\n%s", string(report.TaskLogs))
-	log.Printf("---------------------------------------------------")
+	logger.Info().
+		Str("node_id", report.NodeID).
+		Str("job_id", report.JobID).
+		Str("status", report.Status).
+		RawJSON("task_logs", report.TaskLogs).
+		Msg("report received")
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Report received")
@@ -347,7 +339,6 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 // ListenAndServe starts the server on the specified address
 func (s *Server) ListenAndServe(addr string) error {
-	log.Printf("Othela Control Plane is listening on %s...", addr)
 	return http.ListenAndServe(addr, s.router)
 }
 
@@ -399,7 +390,7 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePlaybooks(w http.ResponseWriter, r *http.Request) {
 	playbooks := s.GetPlaybooks()
 
-	log.Printf("[PLAYBOOKS] Returning %d playbooks", len(playbooks))
+	logger.Debug().Int("count", len(playbooks)).Msg("returning playbooks")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(playbooks)
@@ -410,14 +401,14 @@ func (s *Server) StartFleetSync(repo, branch, cacheDir string, interval time.Dur
 	syncFunc := func() {
 		err := git.EnsureRepo(repo, cacheDir, branch)
 		if err != nil {
-			log.Printf("[ERROR] Failed to sync fleet repository %s: %v", repo, err)
+			logger.Error().Err(err).Str("repo", repo).Msg("failed to sync fleet repository — check repo URL accessibility and credentials")
 			return
 		}
 
 		if s.loader == nil || s.loader.BaseDir() != cacheDir {
 			loader, err := playbook.NewLoader(cacheDir)
 			if err != nil {
-				log.Printf("[ERROR] Failed to create loader for %s: %v", cacheDir, err)
+				logger.Error().Err(err).Str("cache_dir", cacheDir).Msg("failed to create playbook loader")
 				return
 			}
 			s.loader = loader
@@ -425,14 +416,12 @@ func (s *Server) StartFleetSync(repo, branch, cacheDir string, interval time.Dur
 
 		playbooks, err := s.loader.Scan()
 		if err != nil {
-			log.Printf("[ERROR] Failed to scan playbooks: %v", err)
+			logger.Error().Err(err).Msg("failed to scan playbooks")
 			return
 		}
 
 		s.SetPlaybooks(playbooks)
-		if s.debugMode {
-			log.Printf("[DEBUG] Fleet sync complete, loaded %d playbooks", len(playbooks))
-		}
+		logger.Debug().Int("playbook_count", len(playbooks)).Msg("fleet sync complete")
 	}
 
 	// Initial sync before starting the loop
