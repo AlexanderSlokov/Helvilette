@@ -289,25 +289,45 @@ Start the server listening on port 8080:
 cd /mnt/e/Helvilette
 /usr/local/go/bin/go run ./cmd/othela \
   --port=8080 \
-  --playbook-dir=helvilette/othela/data/playbooks \
+  --fleet-repo=https://git.example.com/org/fleet.git \
+  --fleet-branch=main \
+  --fleet-sync-interval=1m \
   --state-dir=./data/othela \
   --log-level=info
 ```
 
-Othela separates its two directories, and never writes into the playbook one:
+Othela does not read playbooks from a directory you mount. It clones the fleet
+repository itself and re-reads it on a timer:
 
-| Flag | Contents | Access | Default |
-| --- | --- | --- | --- |
-| `--playbook-dir` | Playbooks and their `helvilette.yml` | Read-only | `helvilette/othela/data/playbooks` |
-| `--state-dir` | SQLite database and caches | Read-write | `/var/lib/helvilette/othela` |
+| Flag | Meaning | Default |
+| --- | --- | --- |
+| `--fleet-repo` | Git repository holding the `helvilette.yml` manifests. Required. | — |
+| `--fleet-branch` | Branch, tag or commit SHA to track | `main` |
+| `--fleet-sync-interval` | How often to re-read the repository | `1m` |
+| `--state-dir` | Writable state: SQLite database and the fleet cache | `/var/lib/helvilette/othela` |
+| `--log-level` | `debug`, `info`, `warn`, `error` | `info` |
+
+The checkout lives at `<state-dir>/fleet` and belongs to Othela: it is hard-reset
+on every sync, so nothing you edit there survives. Each sync logs the commit it
+resolved to; at `info` a line appears only when that commit moves.
+
+```json
+{"level":"info","component":"othela","fleet_commit":"9f2c...","previous_commit":"04ab...","playbook_count":2,"message":"fleet updated"}
+```
+
+If a manifest is not being dispatched, run with `--log-level=debug`: the loader
+prints every path it examined and why it skipped each one. See
+[ADR-0006](docs/informations/ADRs/ADR-0006.md).
 
 The default `--state-dir` needs root, which is right for a systemd-managed install
 but not for a development run, so the example above points it at a local path.
 Without write access Othela logs a warning and falls back to in-memory storage,
 losing state on restart.
 
-These replace the single `--data-dir` flag, which is removed. See
-[ADR-0003](docs/informations/ADRs/ADR-0003.md).
+`--data-dir` and `--playbook-dir` are both removed; passing either exits with a
+message naming the replacement. See
+[ADR-0003](docs/informations/ADRs/ADR-0003.md) and
+[ADR-0005](docs/informations/ADRs/ADR-0005.md).
 
 #### Terminal 2: Helvilette Agent
 

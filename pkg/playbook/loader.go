@@ -17,6 +17,9 @@ var (
 	ErrNotFound = errors.New("playbook not found")
 )
 
+// Package-level logger for every discovery decision the loader makes.
+var logger = log.WithComponent("playbook-loader")
+
 // ManifestFilename is the only filename Scan accepts. Anything that differs
 // only in case or extension is reported as a near miss rather than loaded;
 // see ADR-0006.
@@ -82,13 +85,12 @@ type scanTally struct {
 // cases, warn for a manifest that failed validation or for a filename that only
 // looks like a manifest. Issue #34 was filed because none of that was visible.
 func (l *Loader) Scan() ([]Playbook, error) {
-	logger := log.WithComponent("playbook-loader")
 	discovered := make(map[string]*Playbook)
 	tally := &scanTally{}
 	var result []Playbook
 
 	err := filepath.Walk(l.baseDir, func(path string, info os.FileInfo, walkErr error) error {
-		pb, skip := l.evaluatePath(logger, tally, path, info, walkErr)
+		pb, skip := l.evaluatePath(tally, path, info, walkErr)
 		if skip != nil {
 			return skip
 		}
@@ -108,14 +110,14 @@ func (l *Loader) Scan() ([]Playbook, error) {
 	l.playbooks = discovered
 	l.mu.Unlock()
 
-	l.logScanOutcome(logger, tally, len(result))
+	l.logScanOutcome(tally, len(result))
 	return result, nil
 }
 
 // evaluatePath decides what a single walked path is. It returns the playbook it
 // produced, or a filepath.SkipDir sentinel, or neither when the path is simply
 // not a manifest. Each outcome is logged before it returns.
-func (l *Loader) evaluatePath(logger zerologger, tally *scanTally, path string, info os.FileInfo, walkErr error) (*Playbook, error) {
+func (l *Loader) evaluatePath(tally *scanTally, path string, info os.FileInfo, walkErr error) (*Playbook, error) {
 	if walkErr != nil {
 		tally.skipped++
 		logger.Warn().Err(walkErr).Str("path", path).Msg("failed to access path during scan, skipping")
@@ -123,21 +125,21 @@ func (l *Loader) evaluatePath(logger zerologger, tally *scanTally, path string, 
 	}
 
 	if info.IsDir() {
-		return nil, l.evaluateDir(logger, tally, path, info)
+		return nil, l.evaluateDir(tally, path, info)
 	}
 
 	tally.filesExamined++
 	if info.Name() != ManifestFilename {
-		l.logNonManifest(logger, tally, path, info.Name())
+		l.logNonManifest(tally, path, info.Name())
 		return nil, nil
 	}
 
-	return l.loadManifest(logger, tally, path, info), nil
+	return l.loadManifest(tally, path, info), nil
 }
 
 // evaluateDir skips dotted directories — .git above all, whose loose objects
 // would otherwise be walked on every sync — and says so at debug level.
-func (l *Loader) evaluateDir(logger zerologger, tally *scanTally, path string, info os.FileInfo) error {
+func (l *Loader) evaluateDir(tally *scanTally, path string, info os.FileInfo) error {
 	if path == l.baseDir || !strings.HasPrefix(info.Name(), ".") {
 		return nil
 	}
@@ -150,7 +152,7 @@ func (l *Loader) evaluateDir(logger zerologger, tally *scanTally, path string, i
 // logNonManifest distinguishes an ordinary file from one whose name only looks
 // like a manifest. helvilette.yaml and Helvilette.yml are the two spellings
 // operators reach for, and silently ignoring them is what issue #34 describes.
-func (l *Loader) logNonManifest(logger zerologger, tally *scanTally, path, name string) {
+func (l *Loader) logNonManifest(tally *scanTally, path, name string) {
 	tally.skipped++
 
 	if !isManifestNearMiss(name) {
@@ -170,7 +172,7 @@ func isManifestNearMiss(name string) bool {
 	return lower == manifestStem+".yml" || lower == manifestStem+".yaml"
 }
 
-func (l *Loader) loadManifest(logger zerologger, tally *scanTally, path string, info os.FileInfo) *Playbook {
+func (l *Loader) loadManifest(tally *scanTally, path string, info os.FileInfo) *Playbook {
 	relPath, err := l.relativeDir(path)
 	if err != nil {
 		tally.skipped++
@@ -218,7 +220,7 @@ func (l *Loader) relativeDir(manifestPath string) (string, error) {
 // of zero is a warning, not an info line: it means no node will be dispatched
 // anything, and issue #34 was filed because that state printed as {"count":0}
 // with nothing else to act on.
-func (l *Loader) logScanOutcome(logger zerologger, tally *scanTally, count int) {
+func (l *Loader) logScanOutcome(tally *scanTally, count int) {
 	event := logger.Info()
 	if count == 0 {
 		event = logger.Warn()

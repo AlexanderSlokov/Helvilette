@@ -316,7 +316,73 @@ Four failure-based runs to validate correct behavior during chaos:
 
 ## 8. First Light Remediation
 
-- [ ] Issue #31: Standardize Othela startup logs to structured JSON exclusively. Remove plain-text log calls from control plane.
-- [ ] Issue #32: Add periodic polling or webhook receiver for `--fleet-repo` in Othela to detect new commits and dispatch jobs.
-- [ ] Issue #33: Fix unknown flag `--fleet-repo` in E2E. The `docker-compose.e2e.yaml` uses `--fleet-repo` which Othela CLI does not actually support. Either implement the flag or update the E2E setup.
-- [ ] Issue #34: Fix playbook loader silent skip. Othela `loader.go` silently ignores playbooks (returns `count: 0`) under certain directory conditions without emitting any `Warn` logs, making debugging difficult. Add proper trace logging.
+- [x] Issue #31: Standardize Othela startup logs to structured JSON exclusively. Remove plain-text log calls from control plane.
+- [x] Issue #32: Add periodic polling or webhook receiver for `--fleet-repo` in Othela to detect new commits and dispatch jobs.
+      The poll loop existed but could never see a new commit: `pkg/git` resolved the
+      branch through `ResolveRevision`, which matches `refs/heads/<branch>` — a ref
+      that fetch never advances. `EnsureRepo` now resolves `refs/remotes/origin/<ref>`
+      and hard-resets, and returns the commit SHA so a moved fleet logs at `info`.
+      Webhook receiver deferred: it needs its own authentication decision. See
+      ADR-0005.
+- [x] Issue #33: Fix unknown flag `--fleet-repo` in E2E. The `docker-compose.e2e.yaml` uses `--fleet-repo` which Othela CLI does not actually support. Either implement the flag or update the E2E setup.
+      Already fixed by commit `caab99c`, which added the flag hours after the issue
+      was filed. `TestE2EComposeFlagsExistOnTheCLI` now reads the `othela` service's
+      command list out of the compose file and asserts every long flag it passes is
+      registered on the CLI, so the two cannot drift apart again.
+- [x] Issue #34: Fix playbook loader silent skip. Othela `loader.go` silently ignores playbooks (returns `count: 0`) under certain directory conditions without emitting any `Warn` logs, making debugging difficult. Add proper trace logging.
+      Every path the walk declines now logs with a `skip_reason`; a near-miss
+      filename such as `helvilette.yaml` warns instead of vanishing; the closing
+      line carries `base_dir`, `files_examined`, `skipped`, `rejected` and
+      `near_misses`, and a count of zero is a warning, not an info line. See
+      ADR-0006.
+
+- [x] Issue #37: README documented `--playbook-dir`, removed by ADR-0003, which exits
+      with an error when passed, and documented none of the fleet flags. The example
+      and flag table now cover `--fleet-repo`, `--fleet-branch`, `--fleet-sync-interval`,
+      `--state-dir` and `--log-level`.
+- [x] Issue #38: Two data races in the fleet sync path. `Server.loader` was written by
+      the sync goroutine while `GetLoader` read it, and `Loader.playbooks` was rewritten
+      by `Scan` while `Get`/`GetByName` read it from HTTP handlers. Both guarded;
+      `go test -race ./cmd/... ./pkg/...` is clean.
+
+### Follow-ups opened during this remediation
+
+- [ ] Issue #38 follow-up: add a `-race` step to CI. `make test` runs without it.
+- [ ] Webhook receiver for `--fleet-repo`, so a push propagates without waiting
+      out `--fleet-sync-interval`. Blocked on an authentication decision: it is an
+      unauthenticated write endpoint on the control plane.
+- [ ] `git clean` in the fleet cache. `EnsureRepo` hard-resets, which does not
+      remove untracked files. A `helvilette.yml` left behind by an earlier commit
+      would still be loaded. Deferred until observed to matter; see ADR-0005.
+- [ ] Subset-overlap rejection for `nodeGroup` selectors, still deferred to
+      v1beta1 by ADR-0004.
+- [ ] `vagrant/baseline-repo/helvilette.yml` (gitignored, local fixture) declares
+      `nodeSelector: {}`, which ADR-0004 rejects at load time. Give the group a
+      real selector before the next manual Vagrant run. Subsumed by the rebuild
+      below if that lands first.
+
+### Vagrant manual-test environment: rebuild rather than repair
+
+The `vagrant/` environment is flaky and unreliable as a test bed for Helvilette.
+Verdict from the project owner, based on repeated manual runs; the cause is not
+yet identified. Treat the current setup as evidence to read, not as a base to
+patch.
+
+Known facts to carry into the investigation:
+
+- Three of the issues it produced (#32, #33, #34) were real defects, so the
+  environment does surface genuine problems. The complaint is about
+  reproducibility, not about false positives.
+- Issue #34's repro could not be reproduced as written, because it used
+  `--playbook-dir`, a flag removed by ADR-0003 before the issue was triaged.
+  The environment and the binary it exercises drifted apart.
+- `vagrant/baseline-repo/` is gitignored, so the manifest under test is not
+  version-controlled and not reviewable. Two runs on two machines are not
+  necessarily running the same fixture.
+- Everything under `vagrant/` that is tracked is four files: `Vagrantfile`,
+  `Makefile`, `helvilette-setup.yml`, `.gitignore`. The rest is local state.
+
+- [ ] Research why the Vagrant environment is unreliable. Decide between
+      rebuilding it on the same shape, replacing libvirt/Vagrant with another
+      provisioner, or folding manual testing into the containerised e2e stack.
+      To be done on `develop`.
