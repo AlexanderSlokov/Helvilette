@@ -39,6 +39,12 @@ STOPSIGNAL SIGRTMIN+3
 RUN mkdir -p /var/log/journal \
  && systemd-tmpfiles --create --prefix /var/log/journal || true
 
+# curl is the health probe and the first thing anyone reaches for when debugging
+# inside a node. The base image ships libcurl but not the binary.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
 CMD ["/lib/systemd/systemd"]
 
 

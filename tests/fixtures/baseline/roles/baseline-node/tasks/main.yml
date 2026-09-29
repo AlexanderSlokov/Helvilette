@@ -3,6 +3,11 @@
   apt:
     name: chrony
     state: present
+    # Required: the node image ships no apt lists, so without this the task
+    # fails with "No package matching 'chrony' is available". The Vagrant box
+    # this fixture came from had a populated cache, which hid the omission.
+    update_cache: yes
+    cache_valid_time: 3600
 
 - name: 2. Template /etc/chrony/chrony.conf
   template:

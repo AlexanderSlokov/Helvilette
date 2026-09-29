@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -12,10 +13,17 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// othelaBase is the published port from e2e.compose.yml. Using the published port
-// rather than a dynamically mapped one keeps the suite and a human at a terminal
-// on the same URL.
-const othelaBase = "http://127.0.0.1:8080"
+// othelaBase is where Othela is published by e2e.compose.yml. Using the
+// published port rather than a dynamically mapped one keeps the suite and a
+// human at a terminal on the same URL. HELV_OTHELA_PORT overrides it on both
+// sides at once, because 8080 is not free on every machine.
+func othelaBase() string {
+	port := os.Getenv("HELV_OTHELA_PORT")
+	if port == "" {
+		port = "8080"
+	}
+	return "http://127.0.0.1:" + port
+}
 
 // The fleet repository carries one manifest per subdirectory: fleet/nginx and
 // fleet/baseline. Each points at its own playbook repository, which is the
@@ -25,7 +33,7 @@ const bakedManifestCount = 2
 
 // getJSON fetches a path off Othela and decodes it into out.
 func getJSON(path string, out any) error {
-	resp, err := http.Get(othelaBase + path)
+	resp, err := http.Get(othelaBase() + path)
 	if err != nil {
 		return err
 	}
