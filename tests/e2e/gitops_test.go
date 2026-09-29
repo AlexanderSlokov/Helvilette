@@ -1,297 +1,196 @@
 package e2e_test
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// startupTimeout bounds every container readiness wait. Set explicitly rather
-// than relying on the testcontainers default, so a slow host fails with a clear
-// deadline rather than an ambiguous one. See ADR-0003.
-const startupTimeout = 3 * time.Minute
+// othelaBase is the published port from e2e.compose.yml. Using the published port
+// rather than a dynamically mapped one keeps the suite and a human at a terminal
+// on the same URL.
+const othelaBase = "http://127.0.0.1:8080"
 
-// repoRootPath resolves the repository root, used as the Docker build context
-// for every image the suite builds.
-func repoRootPath() string {
-	root, err := filepath.Abs("../../")
-	Expect(err).NotTo(HaveOccurred())
-	return root
+// The fleet repository carries one manifest per subdirectory: fleet/nginx and
+// fleet/baseline. Each points at its own playbook repository, which is the
+// separation ADR-0003 introduced and which the previous single-repo fixture
+// never exercised.
+const bakedManifestCount = 2
+
+// getJSON fetches a path off Othela and decodes it into out.
+func getJSON(path string, out any) error {
+	resp, err := http.Get(othelaBase + path)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("GET %s returned %d: %s", path, resp.StatusCode, body)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-var _ = Describe("GitOps Workflow", func() {
-	var ctx context.Context
-	var gitContainer testcontainers.Container
-	var othelaContainer testcontainers.Container
-	var agentContainer testcontainers.Container
-	var agent2Container testcontainers.Container
-	var network testcontainers.Network
+// playbookNames returns the name of every playbook Othela has loaded.
+func playbookNames() ([]string, error) {
+	var playbooks []struct {
+		Name string `json:"name"`
+	}
+	if err := getJSON("/api/v1/playbooks", &playbooks); err != nil {
+		return nil, err
+	}
 
-	BeforeEach(func() {
-		ctx = context.Background()
+	names := make([]string, 0, len(playbooks))
+	for _, pb := range playbooks {
+		names = append(names, pb.Name)
+	}
+	return names, nil
+}
 
-		// 0. Create a network for containers to communicate
-		networkName := fmt.Sprintf("helvilette-e2e-net-%d", time.Now().UnixNano())
-		var err error
-		network, err = testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
-			NetworkRequest: testcontainers.NetworkRequest{
-				Name: networkName,
-			},
-		})
-		Expect(err).NotTo(HaveOccurred())
+// registeredNodes returns the node IDs Othela has seen register.
+func registeredNodes() ([]string, error) {
+	var nodes []struct {
+		NodeID string `json:"node_id"`
+	}
+	if err := getJSON("/api/v1/nodes", &nodes); err != nil {
+		return nil, err
+	}
 
-		// 1. Setup Git Server (git daemon)
-		absPlaybookPath, err := filepath.Abs("./data/playbooks")
-		Expect(err).NotTo(HaveOccurred())
+	ids := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		ids = append(ids, n.NodeID)
+	}
+	return ids, nil
+}
 
-		gitReq := testcontainers.ContainerRequest{
-			// Built from Dockerfile.gitserver rather than installing git at
-			// container start. The previous `apk add` made every run depend on a
-			// package download finishing inside the startup deadline, which failed
-			// under load and passed on an idle host. See ADR-0003.
-			FromDockerfile: testcontainers.FromDockerfile{
-				Context:    repoRootPath(),
-				Dockerfile: "Dockerfile.gitserver",
-			},
-			ExposedPorts: []string{"9418/tcp"},
-			Mounts: testcontainers.ContainerMounts{
-				{
-					Source:   testcontainers.GenericBindMountSource{HostPath: filepath.Join(absPlaybookPath, "nginx-collection")},
-					Target:   testcontainers.ContainerMountTarget("/src/nginx-collection"),
-					ReadOnly: true,
-				},
-			},
-			Cmd: []string{
-				"sh", "-c",
-				`mkdir -p /git/nginx-collection &&
-				cp -a /src/nginx-collection/* /git/nginx-collection/ &&
-				cd /git/nginx-collection && 
-				rm -rf .git &&
-				git init -b main && 
-				git config receive.denyCurrentBranch ignore && 
-				git add . && 
-				git config user.name "Tester" && 
-				git config user.email "test@example.com" && 
-				git commit -m "Initial commit" && 
-				exec git daemon --verbose --export-all --base-path=/git --reuseaddr --enable=receive-pack`,
-			},
-			Networks: []string{networkName},
-			NetworkAliases: map[string][]string{
-				networkName: {"git-server"},
-			},
-			WaitingFor: wait.ForLog("Ready to rumble").WithStartupTimeout(startupTimeout),
-		}
-		
-		gitContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: gitReq,
-			Started:          true,
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		// 2. Setup Othela Control Plane
-		repoRoot := repoRootPath()
-
-		othelaReq := testcontainers.ContainerRequest{
-			FromDockerfile: testcontainers.FromDockerfile{
-				Context:    repoRoot,
-				Dockerfile: "Dockerfile.othela",
-			},
-			ExposedPorts: []string{"8080/tcp"},
-			Cmd: []string{
-				"./othela",
-				"--port=8080",
-				"--fleet-repo=git://git-server:9418/nginx-collection",
-				// State stays on the container filesystem. Bind-mounting it would
-				// put a writable path inside the Go module tree, which is what
-				// broke `go vet ./...` before ADR-0003.
-				"--state-dir=/app/state",
-				"--log-level=debug",
-			},
-			Env: map[string]string{
-				"HELV_TEST_REPO_URL": "git://git-server:9418/nginx-collection",
-			},
-			Networks: []string{networkName},
-			NetworkAliases: map[string][]string{
-				networkName: {"othela"},
-			},
-			// Wait for HTTP endpoint to be ready
-			WaitingFor: wait.ForHTTP("/api/v1/playbooks").WithPort("8080/tcp").WithStartupTimeout(startupTimeout),
-		}
-
-		othelaContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: othelaReq,
-			Started:          true,
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		// 3. Setup Agent
-		agentReq := testcontainers.ContainerRequest{
-			FromDockerfile: testcontainers.FromDockerfile{
-				Context:    repoRoot,
-				Dockerfile: "Dockerfile.agent",
-			},
-			Env: map[string]string{
-				"OTHELA_URL": "http://othela:8080",
-			},
-			Networks: []string{networkName},
-			NetworkAliases: map[string][]string{
-				networkName: {"agent-01"},
-			},
-			// Create a config file via command or ENV for the agent
-			Cmd: []string{
-				"./agent",
-				"--othela-url=http://othela:8080",
-				"--node-id=agent-01",
-				"--poll-interval=5s",
-				"--workspace-dir=/tmp/helvilette",
-				"--labels=role=edge-proxy",
-			},
-		}
-		agentContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: agentReq,
-			Started:          true,
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		// 4. Setup Agent 2 (Unmatched labels)
-		agentReq2 := testcontainers.ContainerRequest{
-			FromDockerfile: testcontainers.FromDockerfile{
-				Context:    repoRoot,
-				Dockerfile: "Dockerfile.agent",
-			},
-			Env: map[string]string{
-				"OTHELA_URL": "http://othela:8080",
-			},
-			Networks: []string{networkName},
-			NetworkAliases: map[string][]string{
-				networkName: {"agent-02"},
-			},
-			Cmd: []string{
-				"./agent",
-				"--othela-url=http://othela:8080",
-				"--node-id=agent-02",
-				"--poll-interval=5s",
-				"--workspace-dir=/tmp/helvilette",
-				"--labels=role=database",
-			},
-		}
-		agent2Container, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: agentReq2,
-			Started:          true,
-		})
-		Expect(err).NotTo(HaveOccurred())
+var _ = Describe("Fleet sync", func() {
+	It("loads every manifest in the fleet repository", func() {
+		Eventually(playbookNames, 90*time.Second, 3*time.Second).
+			Should(ConsistOf("nginx", "baseline"))
 	})
 
-	AfterEach(func() {
-		// Cleanup containers
-		if agent2Container != nil {
-			agent2Container.Terminate(ctx)
+	// Regression test for issue #32. Fleet sync used to resolve refs/heads/<branch>,
+	// which a fetch never advances, so Othela re-checked-out its clone-time commit
+	// on every poll and a manifest pushed after startup was never seen. See ADR-0005.
+	It("picks up a manifest committed after startup", func() {
+		before, err := playbookNames()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(before).To(HaveLen(bakedManifestCount))
+
+		manifest := strings.Join([]string{
+			"apiVersion: helvilette.naughtian.org/v1alpha1",
+			"kind: PlaybookDeployment",
+			"metadata:",
+			"  name: pushed-after-startup",
+			"spec:",
+			"  repo: git://git-server:9418/baseline",
+			"  branch: main",
+			"  playbook: playbook.yml",
+			"  nodeGroups:",
+			"    - name: nobody",
+			"      nodeSelector:",
+			"        role: unclaimed",
+		}, "\n")
+
+		sha, err := seedCommit("fleet", "late/helvilette.yml", manifest)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sha).To(MatchRegexp("^[0-9a-f]{40}$"))
+
+		// One --fleet-sync-interval is 15s in the unit file; allow several.
+		Eventually(playbookNames, 90*time.Second, 3*time.Second).
+			Should(ContainElement("late"))
+
+		By("logging the commit it moved to")
+		logs, err := journal("othela", "helvilette-othela")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(logs).To(ContainSubstring(sha), "othela did not report the commit it synced to")
+		Expect(logs).To(ContainSubstring(`"message":"fleet updated"`))
+	})
+})
+
+var _ = Describe("Label-based dispatch", func() {
+	It("registers both agents", func() {
+		Eventually(registeredNodes, 90*time.Second, 3*time.Second).
+			Should(ConsistOf("node-1", "node-2"))
+	})
+
+	It("runs the edge-proxy playbook on node-1 and the baseline playbook on node-2", func() {
+		// node-1 carries role=edge-proxy and node-2 role=baseline. The selectors
+		// are disjoint on purpose: a node matching two manifests receives only the
+		// first one scanned, which would make the outcome depend on walk order.
+		// See ADR-0004.
+		for _, node := range []string{"node-1", "node-2"} {
+			Eventually(func() (string, error) { return journal(node, "helvilette-agent") },
+				4*time.Minute, 5*time.Second).
+				Should(ContainSubstring(`"message":"playbook execution succeeded"`),
+					node+" never ran a playbook to completion")
 		}
-		if agentContainer != nil {
-			agentContainer.Terminate(ctx)
-		}
-		if othelaContainer != nil {
-			othelaContainer.Terminate(ctx)
-		}
-		if gitContainer != nil {
-			gitContainer.Terminate(ctx)
-		}
-		if network != nil {
-			network.Remove(ctx)
+
+		By("reporting execution back to Othela")
+		Eventually(func() (string, error) { return journal("othela", "helvilette-othela") },
+			4*time.Minute, 5*time.Second).
+			Should(ContainSubstring(`"message":"report received"`))
+	})
+
+	// ADR-0006 in the running stack: the loader must account for every path it
+	// declined, not only report a count. Issue #34 was filed because a count of
+	// zero arrived with nothing to act on.
+	It("accounts for the paths the loader skipped", func() {
+		logs, err := journal("othela", "helvilette-othela")
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(logs).To(ContainSubstring(`"skip_reason":"hidden_dir"`),
+			"the fleet cache contains .git; the loader did not say it skipped it")
+		Expect(logs).To(ContainSubstring(`"files_examined":`),
+			"the scan summary did not say how many files it looked at")
+	})
+})
+
+var _ = Describe("Units and journald", func() {
+	// Helvilette manages systemd, so the e2e stack runs it under systemd. A
+	// foreground-process container cannot exercise either this or the journal.
+	// See ADR-0007 R2.
+	It("runs Othela and the agents as active systemd units", func() {
+		for service, unit := range map[string]string{
+			"othela": "helvilette-othela.service",
+			"node-1": "helvilette-agent.service",
+			"node-2": "helvilette-agent.service",
+		} {
+			out, err := execIn(service, "systemctl", "is-active", unit)
+			Expect(err).NotTo(HaveOccurred(), service+": "+out)
+			Expect(strings.TrimSpace(out)).To(ContainSubstring("active"))
 		}
 	})
 
-	It("Should pull playbook from git and execute on agent", func() {
-		// We expect the agent to sync, execute ansible, and report back to othela.
-		// Since we just started it, the agent should eventually process the job.
-		// Let's poll othela's API or agent's logs.
-		// For now, let's poll othela API directly via its mapped port to see if a report was filed.
-		
-		hostIP, err := othelaContainer.Host(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		mappedPort, err := othelaContainer.MappedPort(ctx, "8080/tcp")
-		Expect(err).NotTo(HaveOccurred())
-
-		othelaURL := fmt.Sprintf("http://%s:%s/api/v1/playbooks", hostIP, mappedPort.Port())
-
-		Eventually(func() error {
-			resp, err := http.Get(othelaURL)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-			
-			if resp.StatusCode != 200 {
-				return fmt.Errorf("Status not 200: %d", resp.StatusCode)
-			}
-			
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			bodyStr := string(bodyBytes)
-			// Wait until playbooks are available
-			if len(bodyStr) < 5 {
-				return fmt.Errorf("Playbooks empty")
-			}
-			
-			return nil
-		}, 30*time.Second, 2*time.Second).Should(Succeed())
-
-		// Optionally check agent logs to confirm sync
-		Eventually(func() string {
-			logs, err := agentContainer.Logs(ctx)
-			if err != nil {
-				return ""
-			}
-			logBytes, _ := io.ReadAll(logs)
-			return string(logBytes)
-		}, 3*time.Minute, 5*time.Second).Should(ContainSubstring("playbook execution"))
-
-		// Check othela logs to confirm it gracefully ignores agent 2
-		Eventually(func() string {
-			logs, err := othelaContainer.Logs(ctx)
-			if err != nil {
-				return ""
-			}
-			logBytes, _ := io.ReadAll(logs)
-			return string(logBytes)
-		}, 30*time.Second, 2*time.Second).Should(ContainSubstring("[DEBUG] Node agent-02 has labels"))
+	// The shared SyslogIdentifier prefix is what lets an operator select the whole
+	// product without knowing either unit name. It is also what a log collector
+	// filters on, which is the point of ADR-0007 R1.
+	It("exposes every component under a helvilette syslog identifier", func() {
+		for service, identifier := range map[string]string{
+			"othela": "helvilette-othela",
+			"node-1": "helvilette-agent",
+		} {
+			out, err := journal(service, identifier)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).NotTo(BeEmpty(), service+" wrote nothing under "+identifier)
+			Expect(out).To(ContainSubstring(`"component":`), "journal entries are not Helvilette's structured logs")
+		}
 	})
+})
 
-	It("Should expose health and readiness endpoints on Othela", func() {
-		hostIP, err := othelaContainer.Host(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		mappedPort, err := othelaContainer.MappedPort(ctx, "8080/tcp")
-		Expect(err).NotTo(HaveOccurred())
-
-		baseURL := fmt.Sprintf("http://%s:%s", hostIP, mappedPort.Port())
-
-		// Test /healthz
-		resp, err := http.Get(baseURL + "/healthz")
-		Expect(err).NotTo(HaveOccurred())
-		defer resp.Body.Close()
-		Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-		bodyBytes, err := io.ReadAll(resp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(string(bodyBytes)).To(ContainSubstring(`"status":"ok"`))
-
-		// Test /readyz
-		resp2, err := http.Get(baseURL + "/readyz")
-		Expect(err).NotTo(HaveOccurred())
-		defer resp2.Body.Close()
-		Expect(resp2.StatusCode).To(Equal(http.StatusOK))
-
-		bodyBytes2, err := io.ReadAll(resp2.Body)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(string(bodyBytes2)).To(ContainSubstring(`"status":"ok"`))
+var _ = Describe("Othela probes", func() {
+	It("answers /healthz and /readyz", func() {
+		for _, path := range []string{"/healthz", "/readyz"} {
+			var body map[string]string
+			Expect(getJSON(path, &body)).To(Succeed())
+			Expect(body).To(HaveKeyWithValue("status", "ok"))
+		}
 	})
 })

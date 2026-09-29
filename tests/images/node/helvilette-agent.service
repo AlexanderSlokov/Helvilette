@@ -1,0 +1,30 @@
+[Unit]
+Description=Helvilette Agent
+Documentation=https://github.com/AlexanderSlokov/Helvilette
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Runs as root deliberately: the agent applies system state through Ansible,
+# which installs packages and manages other systemd units.
+
+# Optional, and the only per-node difference. Carries AGENT_LABELS; node-id is
+# left to default to the hostname. The leading dash means a missing file is not
+# an error, so the image boots without one.
+EnvironmentFile=-/etc/helvilette/agent.env
+
+StateDirectory=helvilette/agent
+SyslogIdentifier=helvilette-agent
+
+ExecStart=/usr/local/bin/agent \
+    --othela-url=http://othela:8080/api/v1 \
+    --poll-interval=5s \
+    --workspace-dir=/var/lib/helvilette/agent
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

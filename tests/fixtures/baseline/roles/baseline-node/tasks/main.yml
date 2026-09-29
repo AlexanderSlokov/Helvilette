@@ -1,0 +1,40 @@
+---
+- name: 1. Install chrony
+  apt:
+    name: chrony
+    state: present
+
+- name: 2. Template /etc/chrony/chrony.conf
+  template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+  notify: Restart chrony
+
+- name: 3. Ensure chrony service is enabled and started
+  systemd:
+    name: chrony
+    enabled: yes
+    state: started
+
+- name: 4. Ensure helvi-test user exists
+  user:
+    name: helvi-test
+    shell: /usr/sbin/nologin
+    state: present
+
+- name: 5 & 6. Configure swappiness
+  copy:
+    dest: /etc/sysctl.d/99-helvi.conf
+    content: "vm.swappiness=10\n"
+    owner: root
+    group: root
+    mode: '0640'
+
+- name: Ensure report-uptime script is present
+  copy:
+    src: report-uptime.sh
+    dest: /usr/local/bin/report-uptime.sh
+    mode: '0755'
+
+- name: 7. Run report-uptime.sh (Unpredictable task)
+  command: /usr/local/bin/report-uptime.sh

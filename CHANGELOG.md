@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed (Breaking)
+
+* **The Vagrant manual-test environment is deleted and replaced by a Compose stack
+  of systemd-in-container nodes.** `docker-compose.e2e.yaml` is renamed
+  `e2e.compose.yml` and is now the only definition of the stack: the Ginkgo suite
+  brings that file up rather than declaring the same four services a second time.
+  The previous split had to be edited in pairs, and issue #33 is what that looks
+  like when it fails.
+
+  Othela and the agents run under `geerlingguy/docker-ubuntu2404-ansible` with
+  systemd as PID 1, as `helvilette-othela.service` and `helvilette-agent.service`.
+  Managing systemd units is what Helvilette does, so a foreground-process
+  container could not exercise it — nor journald, which is what makes logs
+  collectable without configuring a path.
+
+  The git server image commits three repositories at build time: `fleet` (the
+  manifests Othela reads) and `nginx-collection` and `baseline` (the playbooks
+  agents run). Fleet and playbook repositories are now separate, as ADR-0003
+  intended; the previous fixture used one repository for both, so the separation
+  was never exercised.
+
+  `Dockerfile.othela` and `Dockerfile.agent` move to `build/othela/Dockerfile` and
+  `build/agent/Dockerfile`. `Dockerfile.gitserver` is replaced by
+  `tests/images/gitserver/Dockerfile`. Fixtures move from `tests/e2e/data/playbooks/`
+  to `tests/fixtures/` and are tracked. See
+  [ADR-0007](docs/informations/ADRs/ADR-0007.md).
+
+### Fixed
+
+* **The E2E suite had been failing since 2026-09-07** and nothing acted on it. It
+  asserted on `"[DEBUG] Node agent-02 has labels"`, a plain-text log line that the
+  zerolog migration in the same release replaced with JSON, so the assertion could
+  never match again. The suite is rewritten around the compose stack and no longer
+  greps for log prose where an API answer will do.
+
+* **Nothing built the distributable images.** Their only consumer was the e2e
+  stack, which no longer uses them. `make images` builds both and CI runs it as
+  its own job, because an image nothing builds stops being buildable without
+  anyone noticing — which is how the Vagrant environment died.
+
+* **CI never ran the race detector.** Added as its own step. Two data races in the
+  fleet sync path had lived undetected; see #38.
+
+* `tests/fixtures/baseline/` (recovered from the deleted `vagrant/baseline-repo/`,
+  which was gitignored) declared `nodeSelector: {}`. ADR-0004 rejects an empty
+  selector at load time because it matches no node while reading as "matches every
+  node", so that playbook was never dispatched to anything. It now carries a real
+  selector.
+
+### Added
+
+* `make journal` follows Helvilette's units on a node, with `NODE=` selecting
+  which. Per-unit output lives in journald rather than the container log now that
+  the nodes run systemd, so `make logs` shows the boot transcript and this shows
+  Helvilette.
+
+* Both units set a `helvilette-` `SyslogIdentifier`, so `journalctl -t 'helvilette*'`
+  selects the whole product without knowing either unit name. This is the first
+  half of ADR-0007 D2; emitting native journal fields rather than JSON inside
+  `MESSAGE` is the next item in BACKLOG section 8.
+
+
 ### Fixed
 
 * **Othela never picked up commits pushed to `--fleet-repo` after startup.** The

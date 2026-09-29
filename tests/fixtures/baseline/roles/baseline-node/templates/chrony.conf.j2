@@ -1,0 +1,11 @@
+# Rendered by Helvilette. Local edits are overwritten on the next run.
+#
+# chrony_pool arrives as an extra_var from the nodeGroup in the fleet manifest,
+# so a changed pool in Git reaches this file without touching the playbook.
+pool {{ chrony_pool | default('ntp.ubuntu.com') }} iburst
+keyfile /etc/chrony/chrony.keys
+driftfile /var/lib/chrony/chrony.drift
+logdir /var/log/chrony
+maxupdateskew 100.0
+rtcsync
+makestep 1 3

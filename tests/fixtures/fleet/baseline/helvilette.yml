@@ -1,0 +1,32 @@
+# Baseline node configuration.
+#
+# Recovered from the deleted Vagrant environment, where it lived in a gitignored
+# directory and declared `nodeSelector: {}`. ADR-0004 rejects an empty selector
+# at load time, because it matches no node while reading as "matches every
+# node", so that manifest was never dispatched to anything. It now carries a
+# real selector, and lives under version control. See ADR-0007.
+apiVersion: helvilette.naughtian.org/v1alpha1
+kind: PlaybookDeployment
+metadata:
+  name: baseline-nodes
+  labels:
+    app: baseline
+  description: Time sync, a service account and kernel tuning on baseline nodes
+
+spec:
+  # The playbook repository, not this one. Othela reads manifests from the fleet
+  # repository; agents clone the playbook from spec.repo. See ADR-0003.
+  repo: "git://git-server:9418/baseline"
+  branch: "main"
+  playbook: "playbook.yml"
+
+  nodeGroups:
+    # Deliberately disjoint from the nginx selectors. A node matching two
+    # manifests gets only the first one scanned, which would make the e2e
+    # outcome depend on filesystem walk order. See ADR-0004.
+    - name: "baseline"
+      nodeSelector:
+        role: "baseline"
+      ansible:
+        extra_vars:
+          chrony_pool: "ntp.ubuntu.com"

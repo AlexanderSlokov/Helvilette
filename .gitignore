@@ -33,15 +33,12 @@ go.work.sum
 .vscode/
 Đề xuất dự án Helvilette.md
 
-# Playbooks - ignore cloned external repos, keep our test collection
-/tests/e2e/data/playbooks/ansible-collection-hardening/
-
-# Othela runtime state written during e2e runs ({data-dir}/server/db/state.db).
-# Not a playbook despite living under playbooks/ -- see BACKLOG 6.5.
-/tests/e2e/data/playbooks/server/
+# Nothing under tests/ is ignored any more. Since ADR-0007 the e2e fixtures are
+# tracked in tests/fixtures/ and baked into the git server image at build time,
+# and no container writes into the source tree, so there is no runtime state here
+# to exclude. The paths this replaced existed because older stacks left
+# root-owned directories under tests/e2e/data that `go vet ./...` could not read.
 /bin
-/data/gitea
-/data
 /.claude
 
 # Binaries built at the repo root by `go build ./cmd/...` without -o

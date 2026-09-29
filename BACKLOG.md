@@ -316,6 +316,26 @@ Four failure-based runs to validate correct behavior during chaos:
 
 ## 8. First Light Remediation
 
+### 8.0. Next up
+
+- [ ] Emit logs into journald with real journal fields, not a JSON blob in
+      `MESSAGE`. A journald writer behind `pkg/log`, selected when a journal
+      socket is present rather than by a flag. Set `SYSLOG_IDENTIFIER` on both
+      binaries and rename the units to a shared `helvilette-` prefix, so
+      `journalctl -t 'helvilette*'` and `journalctl -u 'helvilette-*'` select the
+      whole product. Outside systemd, JSON on stdout stays as it is.
+      Why it is first: Alloy and Netdata read journald the moment they are
+      installed, so this is what makes Helvilette's logs collectable without
+      handing any collector a path. Decided in ADR-0007 D2.
+- [x] Delete `vagrant/` and rebuild the manual-test environment as a Compose
+      stack of systemd-in-container nodes. ADR-0007 D1, D3, D4, D5.
+      `docker-compose.e2e.yaml` is now `e2e.compose.yml` and is the only
+      definition of the stack; the Ginkgo suite drives that file instead of
+      restating the topology. Fixtures are tracked under `tests/fixtures/` and
+      baked into the git server image at build time. The distributable images
+      moved to `build/` and CI builds them.
+
+
 - [x] Issue #31: Standardize Othela startup logs to structured JSON exclusively. Remove plain-text log calls from control plane.
 - [x] Issue #32: Add periodic polling or webhook receiver for `--fleet-repo` in Othela to detect new commits and dispatch jobs.
       The poll loop existed but could never see a new commit: `pkg/git` resolved the
@@ -348,6 +368,13 @@ Four failure-based runs to validate correct behavior during chaos:
 ### Follow-ups opened during this remediation
 
 - [ ] Issue #38 follow-up: add a `-race` step to CI. `make test` runs without it.
+- [ ] Git credential support for private fleet and playbook repositories. Neither
+      Othela nor the Agent can authenticate to a Git server today; both clone
+      anonymously. Deliberately out of scope for ADR-0007, which brings the public
+      path up first. Scope when picked up: token in an environment variable versus
+      a credential file versus an SSH key, where the secret lives on the node, and
+      whether Othela hands job credentials to agents or each agent holds its own.
+      A public repository has to work before any of that is worth designing.
 - [ ] Webhook receiver for `--fleet-repo`, so a push propagates without waiting
       out `--fleet-sync-interval`. Blocked on an authentication decision: it is an
       unauthenticated write endpoint on the control plane.
@@ -356,33 +383,34 @@ Four failure-based runs to validate correct behavior during chaos:
       would still be loaded. Deferred until observed to matter; see ADR-0005.
 - [ ] Subset-overlap rejection for `nodeGroup` selectors, still deferred to
       v1beta1 by ADR-0004.
-- [ ] `vagrant/baseline-repo/helvilette.yml` (gitignored, local fixture) declares
-      `nodeSelector: {}`, which ADR-0004 rejects at load time. Give the group a
-      real selector before the next manual Vagrant run. Subsumed by the rebuild
-      below if that lands first.
+- [ ] The e2e suite asserts both agents ran a playbook, but not that the right
+      playbook ran on the right node. Assert the job ID, which carries the
+      manifest and nodeGroup name, rather than only that execution succeeded.
+- [ ] Guard the Agent's unit flags the way `TestOthelaUnitFlagsExistOnTheCLI`
+      guards Othela's. Blocked on a small refactor: the Agent builds its
+      `cobra.Command` inside `main()`, so no test can reach its flag set.
+      Extracting `newRootCmd()` also brings that `main()` back under the
+      function-length rule in CLAUDE.md.
 
-### Vagrant manual-test environment: rebuild rather than repair
+### Vagrant manual-test environment: replaced
 
-The `vagrant/` environment is flaky and unreliable as a test bed for Helvilette.
-Verdict from the project owner, based on repeated manual runs; the cause is not
-yet identified. Treat the current setup as evidence to read, not as a base to
-patch.
+Resolved by ADR-0007. Recorded here because the reasoning is worth keeping.
 
-Known facts to carry into the investigation:
+The environment was flaky because it had no reproducible starting state. Four
+separate dependencies on host condition:
 
-- Three of the issues it produced (#32, #33, #34) were real defects, so the
-  environment does surface genuine problems. The complaint is about
-  reproducibility, not about false positives.
-- Issue #34's repro could not be reproduced as written, because it used
-  `--playbook-dir`, a flag removed by ADR-0003 before the issue was triaged.
-  The environment and the binary it exercises drifted apart.
-- `vagrant/baseline-repo/` is gitignored, so the manifest under test is not
-  version-controlled and not reviewable. Two runs on two machines are not
-  necessarily running the same fixture.
-- Everything under `vagrant/` that is tracked is four files: `Vagrantfile`,
-  `Makefile`, `helvilette-setup.yml`, `.gitignore`. The rest is local state.
+- The virtual machines never built Helvilette. `creates: /vagrant/bin/othela`
+  skipped the build, and Vagrant's rsync copies the gitignored `bin/` from the
+  host, so the binary under test was whatever the host last built. The build
+  branch that was skipped could not have worked anyway: the playbook installed
+  `golang-go` from Debian bookworm apt, far below the `go 1.25.6` in `go.mod`.
+- Gitea was bootstrapped by hand through its web UI, so the git server's state
+  depended on whether someone did the clicks and did them the same way.
+- The fixture lived in a gitignored directory, so two machines were not
+  necessarily running the same manifest. It also declared `nodeSelector: {}`,
+  which ADR-0004 rejects at load time, so its playbook was never dispatched.
+- Provisioning order guaranteed a broken first boot: Othela started in play 2
+  pointed at a repository that play 4 had not yet created.
 
-- [ ] Research why the Vagrant environment is unreliable. Decide between
-      rebuilding it on the same shape, replacing libvirt/Vagrant with another
-      provisioner, or folding manual testing into the containerised e2e stack.
-      To be done on `develop`.
+Every one of those is gone in the Compose stack. The fixture survives as
+`tests/fixtures/baseline/`, now with a real selector.
