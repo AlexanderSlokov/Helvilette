@@ -86,7 +86,17 @@ var rootCmd = &cobra.Command{
 		}
 
 		server := NewServerWithConfig(cfg)
-		server.StartFleetSync(fleetRepo, fleetBranch, filepath.Join(stateDir, "fleet"), fleetSyncInterval)
+
+		// Cancelled during drain so the poll loop does not outlive the server.
+		syncCtx, stopFleetSync := context.WithCancel(context.Background())
+		defer stopFleetSync()
+
+		server.StartFleetSync(syncCtx, FleetSyncConfig{
+			Repo:     fleetRepo,
+			Branch:   fleetBranch,
+			CacheDir: filepath.Join(stateDir, "fleet"),
+			Interval: fleetSyncInterval,
+		})
 
 		httpServer := server.NewHTTPServer(addr)
 
@@ -111,6 +121,7 @@ var rootCmd = &cobra.Command{
 
 		// Mark server as not ready so readiness probes fail during drain
 		server.SetReady(false)
+		stopFleetSync()
 		logger.Info().Msg("marked not-ready, draining connections")
 
 		// Give in-flight requests time to complete

@@ -6,9 +6,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+* **Othela never picked up commits pushed to `--fleet-repo` after startup.** The
+  poll loop ran on schedule, but `pkg/git` resolved the branch with go-git's
+  `ResolveRevision`, which expands a bare name through `refs/heads/<branch>`
+  before `refs/remotes/<branch>`. A fetch advances only `refs/remotes/origin/*`,
+  so `refs/heads/main` stayed at the commit the clone landed on and every poll
+  checked out that same commit while logging success. `EnsureRepo` now resolves
+  `refs/remotes/origin/<ref>`, then `refs/tags/<ref>`, then `<ref>` as a commit
+  SHA, and converges the worktree with a hard reset. It returns the resolved SHA,
+  which Othela logs as `fleet_commit` / `previous_commit`. The same call path is
+  used by the Agent, so a job pinned to a branch also ran a stale commit.
+  ([#32](https://github.com/AlexanderSlokov/Helvilette/issues/32), ADR-0005)
+
+* **The playbook loader gave no account of what it skipped.** `{"count":0}` named
+  neither the directory scanned nor how many files were examined, and a manifest
+  named `helvilette.yaml` was passed over in silence. Every path the walk declines
+  now logs with a `skip_reason` (`hidden_dir`, `not_a_manifest`, `parse_rejected`),
+  a near-miss filename warns naming both what was found and what was expected, and
+  the closing line carries `base_dir`, `files_examined`, `skipped`, `rejected` and
+  `near_misses`. A count of zero is logged at WARN, not INFO: it means no node will
+  be dispatched anything.
+  ([#34](https://github.com/AlexanderSlokov/Helvilette/issues/34), ADR-0006)
+
+* **Two data races in the fleet sync path.** `Server.loader` was written by the
+  sync goroutine while `GetLoader` read it, and `Loader.playbooks` was rewritten by
+  `Scan` while `Get` / `GetByName` read it from HTTP handlers. Both are now guarded.
+  `go test -race ./cmd/... ./pkg/...` is clean.
+
+* **The fleet sync goroutine outlived graceful shutdown.** It had no exit. It now
+  takes a `context.Context`, cancelled during drain alongside `SetReady(false)`.
+
+* **A half-finished clone of the fleet repository never self-healed.** A cache
+  directory that existed but would not open as a repository failed on every
+  subsequent poll. It is now discarded and cloned again — on an open failure only,
+  never on a fetch failure, so a network outage leaves the existing checkout intact.
+
+* **README documented `--playbook-dir`**, a flag removed in ADR-0003 that exits
+  with an error when passed, and documented none of the fleet flags.
+
 ### Changed (Breaking)
 
 * Othela now resolves playbooks (manifests) exclusively by Git reference. The `--playbook-dir` flag has been removed and replaced by `--fleet-repo` (required) and `--fleet-branch`. This completes the GitOps transition described in ADR-0003 and Issue #24.
+
+* `git.EnsureRepo` returns `(string, error)` instead of `error`; the string is the
+  resolved commit SHA. `Server.StartFleetSync` takes a `context.Context` and a
+  `FleetSyncConfig` in place of four positional arguments. Both call sites are
+  updated. (ADR-0005)
+
+### Added
+
+* `pkg/log.SetOutput(io.Writer) io.Writer` redirects all log output and returns the
+  previous destination. Log lines are part of the loader's contract now, so tests
+  have to be able to read them back.
+
+* Tests for `pkg/git`, which previously had none — including
+  `TestEnsureRepo_PicksUpCommitsPushedAfterClone`, the regression test for #32,
+  which fails against the previous implementation.
+
+* `TestE2EComposeFlagsExistOnTheCLI` reads the `othela` service's command list out
+  of `docker-compose.e2e.yaml` and asserts every long flag it passes is registered
+  on the CLI. This is the check whose absence let
+  [#33](https://github.com/AlexanderSlokov/Helvilette/issues/33) ship; #33 itself
+  was already fixed by commit `caab99c`.
 
 * **BREAKING — API group domain migration.** The manifest `apiVersion` group changed from `helvilette.io` to `helvilette.naughtian.org`. All manifests must use `apiVersion: helvilette.naughtian.org/v1alpha1`. The previous domain was never registered to this project; the new group uses a subdomain of the project-owned `naughtian.org` domain, which is the strictly correct convention per ADR-0002.
 

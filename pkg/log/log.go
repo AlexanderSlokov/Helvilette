@@ -1,7 +1,9 @@
 package log
 
 import (
+	"io"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -9,17 +11,51 @@ import (
 
 var logger zerolog.Logger
 
+// sink is the one writer every logger in the process ultimately reaches.
+// Loggers derived by WithComponent capture the writer at derivation time, so
+// the indirection is what lets SetOutput redirect them afterwards — without it
+// a test could only capture loggers it built itself.
+var sink = &switchableWriter{out: os.Stdout}
+
+type switchableWriter struct {
+	mu  sync.RWMutex
+	out io.Writer
+}
+
+func (w *switchableWriter) Write(p []byte) (int, error) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.out.Write(p)
+}
+
+func (w *switchableWriter) swap(out io.Writer) io.Writer {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	previous := w.out
+	w.out = out
+	return previous
+}
+
+// SetOutput redirects all log output and returns the previous destination, so
+// callers can restore it. Intended for tests that assert on emitted fields.
+//
+//	var buf bytes.Buffer
+//	defer log.SetOutput(log.SetOutput(&buf))
+func SetOutput(out io.Writer) io.Writer {
+	return sink.swap(out)
+}
+
 func init() {
 	// Check for dev mode - human readable output
 	if os.Getenv("HELVILETTE_DEV") == "1" {
 		output := zerolog.ConsoleWriter{
-			Out:        os.Stdout,
+			Out:        sink,
 			TimeFormat: time.RFC3339,
 		}
 		logger = zerolog.New(output).With().Timestamp().Logger()
 	} else {
 		// Production mode - JSON output
-		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+		logger = zerolog.New(sink).With().Timestamp().Logger()
 	}
 
 	// Set global log level from env

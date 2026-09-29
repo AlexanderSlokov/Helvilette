@@ -491,11 +491,15 @@ func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
 		repoDir := filepath.Join(reposDir, repoName)
 
 		logger.Info().Str("job_id", job.JobID).Str("repo_url", job.RepoURL).Msg("ensuring git repo")
-		if err := git.EnsureRepo(job.RepoURL, repoDir, job.Version); err != nil {
-			logger.Error().Err(err).Str("repo", job.RepoURL).Msg("failed to ensure git repo")
+		// The resolved SHA is logged, not just the requested ref: a branch name
+		// in the log says nothing about which code actually ran. See ADR-0005.
+		commit, err := git.EnsureRepo(job.RepoURL, repoDir, job.Version)
+		if err != nil {
+			logger.Error().Err(err).Str("repo", job.RepoURL).Str("ref", job.Version).Msg("failed to ensure git repo")
 			b, _ := json.Marshal(map[string]string{"error": fmt.Sprintf("Failed to pull git repo: %v", err)})
 			return "Failed", b
 		}
+		logger.Info().Str("job_id", job.JobID).Str("ref", job.Version).Str("commit", commit).Msg("repo checked out")
 
 		if job.PlaybookPath != "" && !filepath.IsAbs(job.PlaybookPath) {
 			playbookFile = filepath.Join(repoDir, job.PlaybookPath)
