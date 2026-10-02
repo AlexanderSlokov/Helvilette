@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+* **Helvilette emits native journal fields when it runs as a systemd unit.**
+  Every key becomes a real journald field, so an operator can address them:
+
+  ```
+  journalctl NODE_ID=node-1
+  journalctl COMPONENT=playbook-loader
+  journalctl -t 'helvilette*' -o cat     # prose, not a JSON document
+  ```
+
+  Previously the whole JSON line landed in one opaque `MESSAGE`, so no field query
+  matched anything and a log collector needed a JSON parse stage before any of it
+  was usable. Alloy and Netdata read journald the moment they are installed, so
+  this is what makes Helvilette's logs collectable without handing any collector a
+  path. Implemented in `pkg/log/journald.go` on `journal.Send` from
+  `github.com/coreos/go-systemd/v22`, which was already a direct dependency — no
+  new one was added. ([ADR-0007](docs/informations/ADRs/ADR-0007.md) D2)
+
+  There is no `JSON` field duplicating the original line, unlike zerolog's own
+  journald writer: `journalctl -o json` reconstructs the record from the fields,
+  so keeping one would only double the volume.
+
+* `pkg/log.IdentifierFor` derives a component's `SYSLOG_IDENTIFIER` from its
+  binary name. A native journal send does not inherit the unit's
+  `SyslogIdentifier=` — that applies to the stream transport — so the binary has to
+  send its own, and `TestOthelaUnitIdentifierMatchesTheBinary` and its Agent
+  counterpart assert the unit and the binary have not drifted apart. Without that
+  the `journalctl -t 'helvilette*'` shipped in the previous release would have
+  silently stopped finding anything.
+
+### Changed
+
+* **Behaviour outside systemd is unchanged**, and the rule for choosing is now the
+  one systemd documents. The sink is selected by `JOURNAL_STREAM`, which systemd
+  sets only for its own units, not by the presence of
+  `/run/systemd/journal/socket`: that socket also exists when an operator runs the
+  binary by hand, where upgrading to journald would swallow their terminal output.
+  Precedence is journald, then `HELVILETTE_DEV=1` console, then JSON on stdout.
+  ADR-0007 D2 is amended in place to record the correction.
+
+* `pkg/log` now formats console output *behind* the swap point rather than in
+  front of it, so `SetOutput` is the single seam for every destination. Existing
+  tests that capture logs are unaffected.
+
+### Removed
+
+* 42 modules dropped from `go.mod` by `go mod tidy`. The e2e suite stopped using
+  `testcontainers-go` when it moved to driving `e2e.compose.yml` directly, and its
+  dependency tree had been carried since.
+
+
 ### Removed
 
 * **Unreachable test scaffolding in Othela's dispatch path.** `handleSync` fell

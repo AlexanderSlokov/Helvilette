@@ -5,15 +5,22 @@ import (
 	"testing"
 )
 
-// A report line as Othela actually logs it, trimmed to the fields the parser
-// reads. Captured from a run where the baseline fixture named a package that
-// does not exist.
-const failedReportLine = `{"level":"info","component":"othela","node_id":"node-2","job_id":"job-x","status":"Failed","task_logs":{"plays":[{"tasks":[` +
-	`{"task":{"name":"baseline-node : 1. Install chrony"},"hosts":{"localhost":{"failed":true,"msg":"No package matching 'chrony-nope' is available"}}},` +
-	`{"task":{"name":"baseline-node : 2. Template chrony.conf"},"hosts":{"localhost":{"changed":true}}}` +
-	`]}]},"message":"report received"}`
+// One journald entry as `journalctl -o json` renders it, trimmed to the fields
+// the parser reads. Captured from a run where the baseline fixture named a
+// package that does not exist.
+//
+// TASK_LOGS is a JSON document inside a string, because every journal field is a
+// byte string. That double encoding is the thing most likely to be got wrong, so
+// the fixture carries it verbatim. See ADR-0007 D2.
+const failedReportLine = `{"PRIORITY":"6","SYSLOG_IDENTIFIER":"helvilette-othela","COMPONENT":"othela",` +
+	`"NODE_ID":"node-2","JOB_ID":"job-x","STATUS":"Failed","MESSAGE":"report received","TASK_LOGS":` +
+	`"{\"plays\":[{\"tasks\":[` +
+	`{\"task\":{\"name\":\"baseline-node : 1. Install chrony\"},\"hosts\":{\"localhost\":{\"failed\":true,\"msg\":\"No package matching 'chrony-nope' is available\"}}},` +
+	`{\"task\":{\"name\":\"baseline-node : 2. Template chrony.conf\"},\"hosts\":{\"localhost\":{\"changed\":true}}}` +
+	`]}]}"}`
 
-const succeededReportLine = `{"level":"info","component":"othela","node_id":"node-1","status":"Success","task_logs":{"plays":[]},"message":"report received"}`
+const succeededReportLine = `{"PRIORITY":"6","COMPONENT":"othela","NODE_ID":"node-1","STATUS":"Success",` +
+	`"MESSAGE":"report received","TASK_LOGS":"{\"plays\":[]}"}`
 
 // TestFailedAnsibleTasks_CollapsesRepeats is the reason this parser exists: an
 // agent retries every poll interval, so one broken task produced dozens of
@@ -56,7 +63,7 @@ func TestFailedAnsibleTasks_SurvivesNonReportLines(t *testing.T) {
 	journal := strings.Join([]string{
 		"",
 		"not json at all",
-		`{"level":"debug","component":"othela","message":"node polling for work"}`,
+		`{"PRIORITY":"7","COMPONENT":"othela","MESSAGE":"node polling for work"}`,
 		failedReportLine,
 	}, "\n")
 

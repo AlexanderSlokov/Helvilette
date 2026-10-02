@@ -90,11 +90,21 @@ func execIn(service string, args ...string) (string, error) {
 	return compose(2*time.Minute, append([]string{"exec", "-T", service}, args...)...)
 }
 
-// journal reads one syslog identifier out of a node's journal. This is the
-// operator path Helvilette is meant to support: `journalctl -t 'helvilette*'`
-// selects the product without knowing how its units were named. See ADR-0007 D2.
+// journal reads one syslog identifier out of a node's journal as journald's own
+// JSON, one object per entry, with Helvilette's fields as real journal fields.
+//
+// This is the operator path Helvilette is meant to support: `journalctl -t
+// 'helvilette*'` selects the product without knowing how its units were named,
+// and every field is addressable. See ADR-0007 D2.
 func journal(service, identifier string) (string, error) {
-	return execIn(service, "journalctl", "--no-pager", "-t", identifier, "-o", "cat")
+	return execIn(service, "journalctl", "--no-pager", "-t", identifier, "-o", "json")
+}
+
+// journalMatching returns the entries whose journal field equals value — the
+// query D2 exists to make possible. Before it, every field was buried in one
+// opaque MESSAGE and this returned nothing.
+func journalMatching(service, field, value string) (string, error) {
+	return execIn(service, "journalctl", "--no-pager", field+"="+value, "-o", "cat")
 }
 
 // seedCommit adds a commit to a served repository and returns the new SHA. The
@@ -148,32 +158,43 @@ func diagnose() string {
 // it could not be read. Never returns an error: a diagnostic that fails to
 // gather must not replace the failure it was gathering for.
 func journalOf(service string) string {
+	// short-iso rather than json: a human reading a failure report wants the
+	// prose with a timestamp, not journald's twenty underscore-prefixed fields
+	// per entry. The parsed failures above carry the fields that matter.
 	out, err := execIn(service, "journalctl", "--no-pager", "-t", "helvilette-othela",
-		"-t", "helvilette-agent", "-o", "cat", "-n", journalTail)
+		"-t", "helvilette-agent", "-o", "short-iso", "-n", journalTail)
 	if err != nil {
 		return "unavailable: " + err.Error() + "\n"
 	}
 	return out
 }
 
-// ansibleReport is the shape Othela logs on a report: the status it recorded and
-// the Ansible JSON callback output verbatim.
+// ansibleReport is one journald entry for a report Othela received. The field
+// names are upper case because they are journal fields now, not keys inside a
+// JSON message; see ADR-0007 D2.
+//
+// TASK_LOGS is a string rather than a nested object: every journal field is a
+// byte string, so Ansible's callback output arrives as JSON text and is decoded
+// separately.
 type ansibleReport struct {
-	Message string `json:"message"`
-	NodeID  string `json:"node_id"`
-	Status  string `json:"status"`
-	TaskLog struct {
-		Plays []struct {
-			Tasks []struct {
-				Task  struct{ Name string } `json:"task"`
-				Hosts map[string]struct {
-					Failed bool   `json:"failed"`
-					Msg    string `json:"msg"`
-					Stderr string `json:"stderr"`
-				} `json:"hosts"`
-			} `json:"tasks"`
-		} `json:"plays"`
-	} `json:"task_logs"`
+	Message  string `json:"MESSAGE"`
+	NodeID   string `json:"NODE_ID"`
+	Status   string `json:"STATUS"`
+	TaskLogs string `json:"TASK_LOGS"`
+}
+
+// ansibleRun is the part of Ansible's JSON callback output that names failures.
+type ansibleRun struct {
+	Plays []struct {
+		Tasks []struct {
+			Task  struct{ Name string } `json:"task"`
+			Hosts map[string]struct {
+				Failed bool   `json:"failed"`
+				Msg    string `json:"msg"`
+				Stderr string `json:"stderr"`
+			} `json:"hosts"`
+		} `json:"tasks"`
+	} `json:"plays"`
 }
 
 // failedAnsibleTasks pulls the task name and message of every failed Ansible
@@ -212,9 +233,14 @@ func failedAnsibleTasks(journalLines string) string {
 
 // describeFailures renders one line per failed task in a single report.
 func describeFailures(entry ansibleReport) []string {
+	var run ansibleRun
+	if err := json.Unmarshal([]byte(entry.TaskLogs), &run); err != nil {
+		return nil
+	}
+
 	var failures []string
 
-	for _, play := range entry.TaskLog.Plays {
+	for _, play := range run.Plays {
 		for _, task := range play.Tasks {
 			for host, result := range task.Hosts {
 				if !result.Failed {

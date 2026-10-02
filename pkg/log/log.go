@@ -15,6 +15,10 @@ var logger zerolog.Logger
 // Loggers derived by WithComponent capture the writer at derivation time, so
 // the indirection is what lets SetOutput redirect them afterwards — without it
 // a test could only capture loggers it built itself.
+//
+// Everything above the sink emits JSON; the sink's destination decides what
+// becomes of it. That ordering matters: console formatting used to wrap the sink
+// rather than sit behind it, which left no single point to swap.
 var sink = &switchableWriter{out: os.Stdout}
 
 type switchableWriter struct {
@@ -46,20 +50,30 @@ func SetOutput(out io.Writer) io.Writer {
 }
 
 func init() {
-	// Check for dev mode - human readable output
-	if os.Getenv("HELVILETTE_DEV") == "1" {
-		output := zerolog.ConsoleWriter{
-			Out:        sink,
-			TimeFormat: time.RFC3339,
-		}
-		logger = zerolog.New(output).With().Timestamp().Logger()
-	} else {
-		// Production mode - JSON output
-		logger = zerolog.New(sink).With().Timestamp().Logger()
-	}
+	sink.out = defaultDestination()
+	logger = zerolog.New(sink).With().Timestamp().Logger()
 
 	// Set global log level from env
 	SetLevel(os.Getenv("HELVILETTE_LOG_LEVEL"))
+}
+
+// defaultDestination decides where logs go when nothing has called SetOutput.
+//
+// journald first: run as a systemd unit there is no human at a terminal, and
+// native fields are what make the entries queryable and collectable without
+// configuring anything. Then HELVILETTE_DEV for a human who asked for prose.
+// Then plain JSON on stdout, which is correct both for a terminal and for a
+// plain container runtime that captures stdout. See ADR-0007 D2.
+func defaultDestination() io.Writer {
+	if underJournal() {
+		return newJournalSink(IdentifierFor(os.Args[0]), os.Stderr)
+	}
+
+	if os.Getenv("HELVILETTE_DEV") == "1" {
+		return zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	}
+
+	return os.Stdout
 }
 
 // SetLevel sets the global zerolog level from a string.
