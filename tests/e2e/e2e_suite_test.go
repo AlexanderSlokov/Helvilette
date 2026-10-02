@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -23,7 +24,25 @@ var _ = BeforeSuite(func() {
 	}
 })
 
+// Diagnostics are gathered here, not in a CI step, because AfterSuite tears the
+// stack down: a step that shells out to docker afterwards finds no containers
+// and prints nothing. The first version of this suite did exactly that, and a
+// failing playbook on CI reported only "exit status 2".
+var _ = AfterEach(func() {
+	if !CurrentSpecReport().Failed() {
+		return
+	}
+	AddReportEntry("stack diagnostics", diagnose())
+})
+
 var _ = AfterSuite(func() {
+	// HELV_KEEP_STACK leaves the containers running so a failure can be opened
+	// up by hand. Never set in CI, where leaked containers outlive the job.
+	if os.Getenv("HELV_KEEP_STACK") != "" {
+		GinkgoWriter.Println("HELV_KEEP_STACK set; leaving the stack up. Tear down with `make down`.")
+		return
+	}
+
 	out, err := composeDown()
 	Expect(err).NotTo(HaveOccurred(), out)
 })

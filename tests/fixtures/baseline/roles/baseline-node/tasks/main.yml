@@ -6,8 +6,12 @@
     # Required: the node image ships no apt lists, so without this the task
     # fails with "No package matching 'chrony' is available". The Vagrant box
     # this fixture came from had a populated cache, which hid the omission.
+    #
+    # Deliberately no cache_valid_time. With one, apt decides whether to refresh
+    # from the mtime of /var/lib/apt/lists, which depends on when the image was
+    # built relative to when the test runs — so the task passed locally and
+    # failed on a CI runner. A few seconds per run buys determinism.
     update_cache: yes
-    cache_valid_time: 3600
 
 - name: 2. Template /etc/chrony/chrony.conf
   template:

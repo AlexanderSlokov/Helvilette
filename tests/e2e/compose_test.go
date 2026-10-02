@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -110,4 +111,123 @@ func seedCommit(repo, path, content string) (string, error) {
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return lines[len(lines)-1]
+}
+
+// journalTail is how much of a node's journal a failure report carries. Enough
+// to see the last job cycle, bounded so the report stays readable.
+const journalTail = "40"
+
+// diagnose gathers what explains a failed spec, while the stack is still up.
+//
+// It has to run from inside the suite: AfterSuite tears the stack down, so a
+// CI step that shells out afterwards finds no containers and prints nothing,
+// which is exactly what the first version of this did.
+func diagnose() string {
+	var report strings.Builder
+
+	if out, err := compose(time.Minute, "ps", "-a"); err == nil {
+		report.WriteString("--- compose ps ---\n" + out)
+	}
+
+	othela, err := journal("othela", "helvilette-othela")
+	if err == nil {
+		if failures := failedAnsibleTasks(othela); failures != "" {
+			report.WriteString("--- failed ansible tasks, per Othela's reports ---\n" + failures)
+		}
+	}
+
+	for _, service := range []string{"othela", "node-1", "node-2"} {
+		report.WriteString("--- journal " + service + " (last " + journalTail + ") ---\n")
+		report.WriteString(journalOf(service))
+	}
+
+	return report.String()
+}
+
+// journalOf returns the tail of one service's Helvilette journal, or the reason
+// it could not be read. Never returns an error: a diagnostic that fails to
+// gather must not replace the failure it was gathering for.
+func journalOf(service string) string {
+	out, err := execIn(service, "journalctl", "--no-pager", "-t", "helvilette-othela",
+		"-t", "helvilette-agent", "-o", "cat", "-n", journalTail)
+	if err != nil {
+		return "unavailable: " + err.Error() + "\n"
+	}
+	return out
+}
+
+// ansibleReport is the shape Othela logs on a report: the status it recorded and
+// the Ansible JSON callback output verbatim.
+type ansibleReport struct {
+	Message string `json:"message"`
+	NodeID  string `json:"node_id"`
+	Status  string `json:"status"`
+	TaskLog struct {
+		Plays []struct {
+			Tasks []struct {
+				Task  struct{ Name string } `json:"task"`
+				Hosts map[string]struct {
+					Failed bool   `json:"failed"`
+					Msg    string `json:"msg"`
+					Stderr string `json:"stderr"`
+				} `json:"hosts"`
+			} `json:"tasks"`
+		} `json:"plays"`
+	} `json:"task_logs"`
+}
+
+// failedAnsibleTasks pulls the task name and message of every failed Ansible
+// task out of Othela's journal. Without this a failing playbook shows up only as
+// "exit status 2", and the reason sits unread inside a report payload.
+//
+// Identical failures are collapsed with a count. An agent retries every poll
+// interval, so a single broken task otherwise fills the report with dozens of
+// copies of itself and buries anything else that failed.
+func failedAnsibleTasks(journalLines string) string {
+	counts := make(map[string]int)
+	var order []string
+
+	for line := range strings.SplitSeq(journalLines, "\n") {
+		var entry ansibleReport
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.Message != "report received" || entry.Status != "Failed" {
+			continue
+		}
+		for _, failure := range describeFailures(entry) {
+			if counts[failure] == 0 {
+				order = append(order, failure)
+			}
+			counts[failure]++
+		}
+	}
+
+	var out strings.Builder
+	for _, failure := range order {
+		fmt.Fprintf(&out, "%s  (seen %d times)\n", failure, counts[failure])
+	}
+	return out.String()
+}
+
+// describeFailures renders one line per failed task in a single report.
+func describeFailures(entry ansibleReport) []string {
+	var failures []string
+
+	for _, play := range entry.TaskLog.Plays {
+		for _, task := range play.Tasks {
+			for host, result := range task.Hosts {
+				if !result.Failed {
+					continue
+				}
+				failure := fmt.Sprintf("%s/%s: %s\n  msg: %s", entry.NodeID, host, task.Task.Name, result.Msg)
+				if result.Stderr != "" {
+					failure += "\n  stderr: " + result.Stderr
+				}
+				failures = append(failures, failure)
+			}
+		}
+	}
+
+	return failures
 }

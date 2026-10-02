@@ -112,23 +112,13 @@ jobs:
           echo "cgroup filesystem: $fstype"
           test "$fstype" = "cgroup2fs"
 
+      # Diagnostics on failure come from the suite itself, as a Ginkgo report
+      # entry: it gathers them while the stack is still up. A step here cannot,
+      # because the suite's AfterSuite has already torn the stack down by the
+      # time any later step runs. An earlier version of this workflow tried and
+      # printed three empty log groups.
       - name: Run E2E Tests
         run: make e2e
-
-      # The suite asserts on journald inside the nodes, so a failure is usually
-      # only explicable from what the units logged.
-      - name: Journals on failure
-        if: failure()
-        run: |
-          for node in othela node-1 node-2; do
-            echo "::group::journal $node"
-            docker compose -f e2e.compose.yml exec -T "$node" \
-              journalctl --no-pager -t 'helvilette*' || true
-            echo "::endgroup::"
-          done
-          echo "::group::compose ps"
-          docker compose -f e2e.compose.yml ps || true
-          echo "::endgroup::"
 
       - name: Tear down
         if: always()
