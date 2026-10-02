@@ -1,0 +1,34 @@
+[Unit]
+Description=Helvilette Othela control plane
+Documentation=https://github.com/AlexanderSlokov/Helvilette
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=helvilette
+Group=helvilette
+
+# StateDirectory creates /var/lib/helvilette/othela owned by the service user on
+# every start, so no provisioning step has to mkdir and chown it. It is also the
+# default --state-dir, which is why no such flag appears below. See ADR-0003.
+StateDirectory=helvilette/othela
+
+# SyslogIdentifier is what makes `journalctl -t 'helvilette*'` select the whole
+# product without knowing how the units were named. See ADR-0007 D2.
+SyslogIdentifier=helvilette-othela
+
+# 15s rather than the 1m default: the e2e suite asserts that a commit pushed
+# after startup is picked up, and a minute per assertion is not worth paying.
+ExecStart=/usr/local/bin/othela \
+    --port=8080 \
+    --fleet-repo=git://git-server:9418/fleet \
+    --fleet-branch=main \
+    --fleet-sync-interval=15s \
+    --log-level=debug
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

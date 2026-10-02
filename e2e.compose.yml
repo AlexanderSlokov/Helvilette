@@ -1,0 +1,153 @@
+# The Helvilette end-to-end stack, and the only definition of it.
+#
+# `make up` and `make e2e` both run this file: the Ginkgo suite brings it up with
+# `docker compose` rather than restating the topology in Go. The previous split
+# declared the same four services twice, in docker-compose.e2e.yaml and in
+# tests/e2e/gitops_test.go, which had to be edited in pairs. Issue #33 is what
+# that looks like when it fails. See ADR-0007.
+#
+# Othela and the agents run under systemd as PID 1, as real units, because that
+# is the layer Helvilette manages. See ADR-0007 R2.
+
+name: helvilette-e2e
+
+# What systemd as PID 1 needs in a container, established by testing each piece
+# against Docker 29.8 on a cgroup v2 host:
+#
+#   cgroup: host        Without it this daemon does not present a cgroup2
+#                       filesystem at /sys/fs/cgroup inside the container, and
+#                       systemd falls back to its legacy hierarchy and dies
+#                       trying to mount /sys/fs/cgroup/systemd.
+#   the cgroup bind      Read-only is not enough: systemd creates an init.scope
+#                       under its own scope and fails with "Read-only file system".
+#   tmpfs on /run        systemd writes its runtime state there.
+#   SYS_ADMIN            Mounting its API filesystems.
+#   seccomp/apparmor     See the note on security_opt below.
+#   SIGRTMIN+3           systemd's shutdown signal; SIGTERM means "reexec" to it,
+#                       so `docker stop` would hang until the kill timeout.
+#
+# Extended by each node service.
+x-systemd-node: &systemd-node
+  build:
+    context: .
+    dockerfile: tests/images/node/Dockerfile
+  cgroup: host
+  tmpfs:
+    - /run
+    - /run/lock
+    - /tmp
+  volumes:
+    - /sys/fs/cgroup:/sys/fs/cgroup:rw
+  # CAP_SYS_ADMIN lets systemd mount its own API filesystems; CAP_SYS_TIME lets
+  # the baseline playbook start chrony, which is the point of managing a real
+  # service rather than a decorative one.
+  cap_add:
+    - SYS_ADMIN
+    - SYS_TIME
+  # systemd forks a sandbox to run its generators, which the default seccomp
+  # profile refuses: it fails with "Failed to fork off sandboxing environment for
+  # executing generators: Protocol error" and PID 1 exits 255. Unconfining these
+  # two is what `privileged: true` would do wholesale; naming them keeps the rest
+  # of the confinement in place.
+  security_opt:
+    - seccomp=unconfined
+    - apparmor=unconfined
+  stop_signal: SIGRTMIN+3
+  stop_grace_period: 20s
+  networks:
+    - helvilette
+  restart: unless-stopped
+
+services:
+  # Serves three repositories, all committed into the image at build time:
+  #   fleet             the manifests Othela reads, one per subdirectory
+  #   nginx-collection  the playbook the edge-proxy group runs
+  #   baseline          the playbook the baseline group runs
+  # Nothing here is bind-mounted, so no container writes into the source tree.
+  git-server:
+    build:
+      context: .
+      dockerfile: tests/images/gitserver/Dockerfile
+    image: helvilette-gitserver:e2e
+    networks:
+      - helvilette
+    # Published for convenience only; every service reaches it over the compose
+    # network. Overridable because a developer machine is not guaranteed to have
+    # any particular port free.
+    ports:
+      - "${HELV_GIT_PORT:-9418}:9418"
+    restart: unless-stopped
+
+  othela:
+    <<: *systemd-node
+    build:
+      context: .
+      dockerfile: tests/images/node/Dockerfile
+      target: othela-node
+    image: helvilette-othela-node:e2e
+    hostname: othela
+    # The suite reads HELV_OTHELA_PORT with the same default, so overriding it
+    # moves both. 8080 is a popular port; a log viewer or an app server on the
+    # developer's machine should not make the stack unstartable.
+    ports:
+      - "${HELV_OTHELA_PORT:-8080}:8080"
+    depends_on:
+      git-server:
+        condition: service_healthy
+    # curl -f fails on a non-2xx, so an Othela that is draining and answering
+    # /readyz with 503 reports unhealthy rather than ready. A bare TCP probe
+    # would call it healthy.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 3s
+      timeout: 5s
+      start_period: 30s
+      retries: 20
+
+  # Labels are the only per-node difference. node-id is left to default to the
+  # hostname, so nothing has to declare it twice.
+  node-1:
+    <<: *systemd-node
+    build:
+      context: .
+      dockerfile: tests/images/node/Dockerfile
+      target: agent-node
+    image: helvilette-agent-node:e2e
+    hostname: node-1
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - ./tests/images/node/agent-node-1.env:/etc/helvilette/agent.env:ro
+    depends_on:
+      othela:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "systemctl", "is-active", "--quiet", "helvilette-agent.service"]
+      interval: 3s
+      timeout: 5s
+      start_period: 30s
+      retries: 20
+
+  node-2:
+    <<: *systemd-node
+    build:
+      context: .
+      dockerfile: tests/images/node/Dockerfile
+      target: agent-node
+    image: helvilette-agent-node:e2e
+    hostname: node-2
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - ./tests/images/node/agent-node-2.env:/etc/helvilette/agent.env:ro
+    depends_on:
+      othela:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "systemctl", "is-active", "--quiet", "helvilette-agent.service"]
+      interval: 3s
+      timeout: 5s
+      start_period: 30s
+      retries: 20
+
+networks:
+  helvilette:
+    driver: bridge

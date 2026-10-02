@@ -2,18 +2,18 @@
 # ===================
 
 .PHONY: all build test test-verbose test-cover cover-html clean clean-e2e \
-        run-othela run-othela-prod run-agent run-agent-prod up down logs seed e2e tidy \
-        fmt fmt-check lint
+        run-othela run-othela-prod run-agent run-agent-prod up down logs journal \
+        images e2e tidy fmt fmt-check lint
 
 # Go packages that make up the shippable code. Deliberately excludes
-# ./tests/... : the e2e suite is driven by ginkgo (make e2e), and a plain
-# `./...` also trips over container-created state under tests/e2e/data
-# (see clean-e2e below). Keep unit-test targets pointed here.
+# ./tests/... : the e2e suite is driven by ginkgo (make e2e) and needs a Docker
+# daemon, so it must not run as part of a plain unit-test invocation.
 GO_PKGS := ./cmd/... ./pkg/...
 
 # The repo has no default compose file, so every docker compose call must
-# name this one explicitly.
-COMPOSE_FILE := docker-compose.e2e.yaml
+# name this one explicitly. This file is the only definition of the e2e stack:
+# `make up` and `make e2e` both run it. See ADR-0007.
+COMPOSE_FILE := e2e.compose.yml
 COMPOSE := docker compose -f $(COMPOSE_FILE)
 
 # Default target
@@ -59,18 +59,34 @@ run-agent-prod:
 	go run ./cmd/agent
 
 # Docker Compose Targets
+#
+# --wait blocks until every service reports healthy, using the healthcheck blocks
+# in the compose file, so a stack that came up broken fails here rather than in
+# whatever you run next.
 up:
-	$(COMPOSE) up -d --build
+	$(COMPOSE) up -d --build --wait --wait-timeout 600
 
 down:
-	$(COMPOSE) down -v
+	$(COMPOSE) down -v --remove-orphans
 
 logs:
 	$(COMPOSE) logs -f
 
-seed:
-	@echo "Seeding is now automatically handled by docker-compose via git-seeder container."
+# Per-unit output lives in each node's journal, not in its container log, because
+# the nodes run systemd. `make logs` shows the boot transcript; this shows
+# Helvilette. NODE defaults to the control plane.
+NODE ?= othela
+journal:
+	$(COMPOSE) exec $(NODE) journalctl --no-pager -f -t 'helvilette*'
 
+# Builds the distributable images. Nothing else in this repo consumes them, so
+# without this target they would drift out of buildability unnoticed, which is
+# how the Vagrant environment died. CI runs it too. See ADR-0007.
+images:
+	docker build -f build/othela/Dockerfile -t helvilette-othela:dev .
+	docker build -f build/agent/Dockerfile -t helvilette-agent:dev .
+
+# Drives $(COMPOSE_FILE) itself: brings the stack up, asserts, tears it down.
 e2e:
 	go run github.com/onsi/ginkgo/v2/ginkgo run ./tests/e2e/...
 
@@ -79,23 +95,17 @@ clean:
 	rm -rf bin/
 	rm -f coverage.out coverage.html
 
-# Remove container-created state left by older stacks.
+# Remove anything a stack left behind.
 #
-# Since ADR-0003 Othela writes its state to a named volume, so a current stack
-# creates nothing here. Stacks from before that change left
-# tests/e2e/data/playbooks/server owned by root:root mode 750, which the host
-# user cannot read, so `go vet ./...` and `go list ./...` failed with
-# "permission denied" before examining any code. Deleting it needs root, so
-# borrow a container's root rather than asking for sudo. Harmless to run when
-# the directories are already gone.
+# Since ADR-0007 the e2e stack writes nothing into the source tree: fixtures are
+# baked into the git server image at build time and state lives in container
+# filesystems and named volumes. So this is `compose down -v` and little else.
+# The previous version had to borrow a container's root to delete
+# tests/e2e/data/playbooks/server, created root:root mode 750 by an older stack,
+# which made `go vet ./...` fail before it examined any code.
 clean-e2e:
 	$(COMPOSE) down -v --remove-orphans 2>/dev/null || true
-	@mkdir -p data
-	docker run --rm \
-		-v "$(CURDIR)/tests/e2e/data:/e2e-data" \
-		-v "$(CURDIR)/data:/agent-data" \
-		alpine:3.19 \
-		rm -rf /e2e-data/playbooks/server /agent-data/agent-1 /agent-data/agent-2
+	docker image rm -f helvilette-gitserver:e2e helvilette-othela-node:e2e helvilette-agent-node:e2e 2>/dev/null || true
 
 # Tidy go modules
 tidy:

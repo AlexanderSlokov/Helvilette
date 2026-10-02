@@ -232,7 +232,16 @@ Issue: #15. ADR: ADR-0004. Resolved.
 - [x] Fix e2e manifest: high-performance-proxies now has {role: edge-proxy, tier: high-performance}.
 
 ### 6.2. Fallback HELV_TEST_REPO_URL is dead code
-- [ ] Remove fallback branch and HELV_TEST_REPO_URL variable from docker-compose.e2e.yaml if unused.
+Now provably unreachable, not merely suspected. `handleSync` in
+`cmd/othela/server.go` falls back to `HELV_TEST_REPO_URL`, then to a hardcoded
+`http://git-server:3000/helvilette/nginx-collection.git`, when
+`pb.Manifest.Spec.Repo` is empty. But `validateSpec` has rejected an empty
+`spec.repo` since ADR-0002, and a manifest that fails validation never becomes a
+playbook, so `Spec.Repo` is never empty for anything `handleSync` iterates over.
+Nothing sets the variable either: ADR-0007 removed it from the compose file, and
+`cmd/othela/server.go:242` is now its only mention in the tree.
+- [ ] Delete the fallback branch, the environment variable and the hardcoded URL.
+      Test scaffolding does not belong in the dispatch path.
 
 ### 6.3. Nested e2e manifest is outdated compared to working tree
 Issue: #20, #24. ADR: ADR-0003. Resolved.
@@ -283,12 +292,17 @@ Issue: #18. Resolved.
 - [x] Resolve ginkgo through the module toolchain so the suite runs under the version
       pinned in go.mod.
 
-### 6.7. cmd/agent/main.go exceeds the file size limit
-CLAUDE.md sets a 500-line ceiling per file. cmd/agent/main.go is 708 lines and
-cmd/othela/server.go is 446. Both will grow further under sections 3.6 and 3.8.
+### 6.7. Two files exceed the file size limit
+AGENTS.md sets a 500-line ceiling per file. Both files that were approaching it
+have now crossed it: `cmd/agent/main.go` is 819 lines and
+`cmd/othela/server.go` is 520. The fleet sync work in ADR-0005 pushed the second
+one over.
 - [ ] Split cmd/agent/main.go by responsibility (config resolution, polling loop,
-      playbook execution, reporting).
-- [ ] Reassess cmd/othela/server.go before it crosses 500 lines.
+      playbook execution, reporting). Extracting `newRootCmd()` as part of this
+      also unblocks the Agent unit-flag guard below.
+- [ ] Split cmd/othela/server.go. The fleet sync methods (`StartFleetSync`,
+      `syncFleetOnce`, `ensureLoader`, `publishFleet`) are one responsibility and
+      move out cleanly; deleting the dead fallback in 6.2 removes a little more.
 
 ### 6.8. CI never ran cmd/agent tests
 Resolved as part of #17. Recorded because the gap existed undetected across several
@@ -316,6 +330,35 @@ Four failure-based runs to validate correct behavior during chaos:
 
 ## 8. First Light Remediation
 
+### 8.0. Next up
+
+ADR-0007 D2 is two pieces of work. The first shipped with the e2e rebuild; the
+second has not started.
+
+- [x] Give both components a predictable name in the journal. The units are
+      `helvilette-othela.service` and `helvilette-agent.service`, each setting
+      `SyslogIdentifier=`, so `journalctl -t 'helvilette*'` and
+      `journalctl -u 'helvilette-*'` select the whole product without knowing
+      either unit name. Asserted by the e2e suite.
+- [ ] Emit real journal fields instead of a JSON blob inside `MESSAGE`. Today
+      stdout reaches journald and the whole JSON line lands in one opaque field,
+      so `journalctl NODE_ID=node-1` does not work and a collector needs a JSON
+      parse stage. Wanted: a journald writer behind `pkg/log`, selected when
+      `/run/systemd/journal/socket` exists rather than by a flag, because a flag
+      is one more thing an operator has to know. Outside systemd, JSON on stdout
+      stays exactly as it is.
+      Why it matters: Alloy and Netdata read journald the moment they are
+      installed, so this is what makes Helvilette's logs collectable without
+      handing any collector a path. ADR-0007 R1, D2.
+- [x] Delete `vagrant/` and rebuild the manual-test environment as a Compose
+      stack of systemd-in-container nodes. ADR-0007 D1, D3, D4, D5.
+      `docker-compose.e2e.yaml` is now `e2e.compose.yml` and is the only
+      definition of the stack; the Ginkgo suite drives that file instead of
+      restating the topology. Fixtures are tracked under `tests/fixtures/` and
+      baked into the git server image at build time. The distributable images
+      moved to `build/` and CI builds them.
+
+
 - [x] Issue #31: Standardize Othela startup logs to structured JSON exclusively. Remove plain-text log calls from control plane.
 - [x] Issue #32: Add periodic polling or webhook receiver for `--fleet-repo` in Othela to detect new commits and dispatch jobs.
       The poll loop existed but could never see a new commit: `pkg/git` resolved the
@@ -326,9 +369,11 @@ Four failure-based runs to validate correct behavior during chaos:
       ADR-0005.
 - [x] Issue #33: Fix unknown flag `--fleet-repo` in E2E. The `docker-compose.e2e.yaml` uses `--fleet-repo` which Othela CLI does not actually support. Either implement the flag or update the E2E setup.
       Already fixed by commit `caab99c`, which added the flag hours after the issue
-      was filed. `TestE2EComposeFlagsExistOnTheCLI` now reads the `othela` service's
-      command list out of the compose file and asserts every long flag it passes is
-      registered on the CLI, so the two cannot drift apart again.
+      was filed. `TestOthelaUnitFlagsExistOnTheCLI` reads the `ExecStart=` of
+      `tests/images/node/helvilette-othela.service` and asserts every long flag it
+      passes is registered on the CLI, so the two cannot drift apart again. It
+      reads the unit rather than a compose `command:` because ADR-0007 moved the
+      flags there. Verified to fail when the unit passes a flag the CLI lacks.
 - [x] Issue #34: Fix playbook loader silent skip. Othela `loader.go` silently ignores playbooks (returns `count: 0`) under certain directory conditions without emitting any `Warn` logs, making debugging difficult. Add proper trace logging.
       Every path the walk declines now logs with a `skip_reason`; a near-miss
       filename such as `helvilette.yaml` warns instead of vanishing; the closing
@@ -347,7 +392,15 @@ Four failure-based runs to validate correct behavior during chaos:
 
 ### Follow-ups opened during this remediation
 
-- [ ] Issue #38 follow-up: add a `-race` step to CI. `make test` runs without it.
+- [x] Issue #38 follow-up: CI runs a `-race` step. `make test` still does not, so
+      a local run will not catch what CI does.
+- [ ] Git credential support for private fleet and playbook repositories. Neither
+      Othela nor the Agent can authenticate to a Git server today; both clone
+      anonymously. Deliberately out of scope for ADR-0007, which brings the public
+      path up first. Scope when picked up: token in an environment variable versus
+      a credential file versus an SSH key, where the secret lives on the node, and
+      whether Othela hands job credentials to agents or each agent holds its own.
+      A public repository has to work before any of that is worth designing.
 - [ ] Webhook receiver for `--fleet-repo`, so a push propagates without waiting
       out `--fleet-sync-interval`. Blocked on an authentication decision: it is an
       unauthenticated write endpoint on the control plane.
@@ -356,33 +409,34 @@ Four failure-based runs to validate correct behavior during chaos:
       would still be loaded. Deferred until observed to matter; see ADR-0005.
 - [ ] Subset-overlap rejection for `nodeGroup` selectors, still deferred to
       v1beta1 by ADR-0004.
-- [ ] `vagrant/baseline-repo/helvilette.yml` (gitignored, local fixture) declares
-      `nodeSelector: {}`, which ADR-0004 rejects at load time. Give the group a
-      real selector before the next manual Vagrant run. Subsumed by the rebuild
-      below if that lands first.
+- [ ] The e2e suite asserts both agents ran a playbook, but not that the right
+      playbook ran on the right node. Assert the job ID, which carries the
+      manifest and nodeGroup name, rather than only that execution succeeded.
+- [ ] Guard the Agent's unit flags the way `TestOthelaUnitFlagsExistOnTheCLI`
+      guards Othela's. Blocked on a small refactor: the Agent builds its
+      `cobra.Command` inside `main()`, so no test can reach its flag set.
+      Extracting `newRootCmd()` also brings that `main()` back under the
+      function-length rule in AGENTS.md, and overlaps with 6.7.
 
-### Vagrant manual-test environment: rebuild rather than repair
+### Vagrant manual-test environment: replaced
 
-The `vagrant/` environment is flaky and unreliable as a test bed for Helvilette.
-Verdict from the project owner, based on repeated manual runs; the cause is not
-yet identified. Treat the current setup as evidence to read, not as a base to
-patch.
+Resolved by ADR-0007. Recorded here because the reasoning is worth keeping.
 
-Known facts to carry into the investigation:
+The environment was flaky because it had no reproducible starting state. Four
+separate dependencies on host condition:
 
-- Three of the issues it produced (#32, #33, #34) were real defects, so the
-  environment does surface genuine problems. The complaint is about
-  reproducibility, not about false positives.
-- Issue #34's repro could not be reproduced as written, because it used
-  `--playbook-dir`, a flag removed by ADR-0003 before the issue was triaged.
-  The environment and the binary it exercises drifted apart.
-- `vagrant/baseline-repo/` is gitignored, so the manifest under test is not
-  version-controlled and not reviewable. Two runs on two machines are not
-  necessarily running the same fixture.
-- Everything under `vagrant/` that is tracked is four files: `Vagrantfile`,
-  `Makefile`, `helvilette-setup.yml`, `.gitignore`. The rest is local state.
+- The virtual machines never built Helvilette. `creates: /vagrant/bin/othela`
+  skipped the build, and Vagrant's rsync copies the gitignored `bin/` from the
+  host, so the binary under test was whatever the host last built. The build
+  branch that was skipped could not have worked anyway: the playbook installed
+  `golang-go` from Debian bookworm apt, far below the `go 1.25.6` in `go.mod`.
+- Gitea was bootstrapped by hand through its web UI, so the git server's state
+  depended on whether someone did the clicks and did them the same way.
+- The fixture lived in a gitignored directory, so two machines were not
+  necessarily running the same manifest. It also declared `nodeSelector: {}`,
+  which ADR-0004 rejects at load time, so its playbook was never dispatched.
+- Provisioning order guaranteed a broken first boot: Othela started in play 2
+  pointed at a repository that play 4 had not yet created.
 
-- [ ] Research why the Vagrant environment is unreliable. Decide between
-      rebuilding it on the same shape, replacing libvirt/Vagrant with another
-      provisioner, or folding manual testing into the containerised e2e stack.
-      To be done on `develop`.
+Every one of those is gone in the Compose stack. The fixture survives as
+`tests/fixtures/baseline/`, now with a real selector.

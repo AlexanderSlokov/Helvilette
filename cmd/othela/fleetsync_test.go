@@ -3,14 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"gopkg.in/yaml.v3"
 
 	"helvilette/pkg/log"
 	"helvilette/pkg/playbook"
@@ -183,62 +180,6 @@ func TestPublishFleet_LogsOnlyWhenTheCommitMoves(t *testing.T) {
 	if server.LastCommit() != "def456" {
 		t.Errorf("LastCommit = %q, want def456", server.LastCommit())
 	}
-}
-
-// TestE2EComposeFlagsExistOnTheCLI is the guard against issue #33 recurring.
-// docker-compose.e2e.yaml passed --fleet-repo while the CLI only defined
-// --playbook-dir, and nothing failed until someone started the stack by hand.
-func TestE2EComposeFlagsExistOnTheCLI(t *testing.T) {
-	for _, flagName := range othelaComposeFlags(t) {
-		if rootCmd.Flags().Lookup(flagName) == nil {
-			t.Errorf("docker-compose.e2e.yaml passes --%s, which othela does not define", flagName)
-		}
-	}
-}
-
-// othelaComposeFlags reads the long flag names from the othela service's command
-// list in docker-compose.e2e.yaml.
-func othelaComposeFlags(t *testing.T) []string {
-	t.Helper()
-
-	// Services are decoded one at a time: git-server writes its command as a
-	// single shell string, which does not fit the list shape othela uses.
-	var compose struct {
-		Services map[string]yaml.Node `yaml:"services"`
-	}
-
-	raw, err := os.ReadFile(filepath.Join("..", "..", "docker-compose.e2e.yaml"))
-	if err != nil {
-		t.Fatalf("read compose file: %v", err)
-	}
-	if err := yaml.Unmarshal(raw, &compose); err != nil {
-		t.Fatalf("parse compose file: %v", err)
-	}
-
-	node, ok := compose.Services["othela"]
-	if !ok {
-		t.Fatal("docker-compose.e2e.yaml has no othela service")
-	}
-
-	var othela struct {
-		Command []string `yaml:"command"`
-	}
-	if err := node.Decode(&othela); err != nil {
-		t.Fatalf("decode othela service: %v", err)
-	}
-
-	var names []string
-	for _, arg := range othela.Command {
-		if !strings.HasPrefix(arg, "--") {
-			continue
-		}
-		names = append(names, strings.SplitN(strings.TrimPrefix(arg, "--"), "=", 2)[0])
-	}
-
-	if len(names) == 0 {
-		t.Fatal("othela service passes no long flags; the guard would pass vacuously")
-	}
-	return names
 }
 
 func mustAbs(t *testing.T, path string) string {

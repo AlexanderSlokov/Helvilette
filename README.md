@@ -378,25 +378,52 @@ complete in about a second; the E2E suite needs a running stack and takes minute
 ```bash
 make test        # Unit tests: ./cmd/... and ./pkg/... . No Docker required.
 make fmt-check   # Verify gofmt without rewriting files. Same check CI runs.
-make e2e         # End-to-end suite. Requires the stack from `make up`.
+make e2e         # End-to-end suite. Brings the stack up itself; needs Docker.
+make images      # Build the distributable Othela and Agent images.
 ```
 
 `make test` covers `./cmd/...` and `./pkg/...` rather than `./...`, because `./...` pulls in
-the Ginkgo E2E suite, which hangs when no stack is running.
+the Ginkgo E2E suite, which needs a Docker daemon.
+
+### The End-to-End Stack
+
+`e2e.compose.yml` is the only definition of the stack, and both `make up` and `make e2e` run
+it. The suite drives that file rather than declaring its own topology, so the two cannot
+disagree. See [ADR-0007](docs/informations/ADRs/ADR-0007.md).
+
+| Service | What it is |
+| --- | --- |
+| `git-server` | `git daemon` serving three repositories committed into the image at build time: `fleet` (the manifests Othela reads), `nginx-collection` and `baseline` (the playbooks agents run) |
+| `othela` | Ubuntu 24.04 with systemd as PID 1, running `helvilette-othela.service` |
+| `node-1` | Agent node labelled `role=edge-proxy` |
+| `node-2` | Agent node labelled `role=baseline` |
+
+The nodes run systemd rather than a foreground process, because managing systemd units is
+what Helvilette does. A container that cannot run `systemctl` cannot exercise it.
+
+```bash
+make up                  # Build and start; blocks until every service is healthy
+make journal             # Follow Helvilette's units on the control plane
+make journal NODE=node-1 # ... or on an agent
+make down                # Stop and remove, including volumes
+```
+
+Per-unit output lives in each node's journal, not in its container log, so `make logs` shows
+the systemd boot transcript while `make journal` shows Helvilette. Both binaries set a
+`helvilette-` syslog identifier, so `journalctl -t 'helvilette*'` selects the whole product
+without knowing either unit name.
 
 ### Cleaning Up After E2E Runs
 
-The E2E stack writes runtime state to `tests/e2e/data` and `data/`. To remove it:
-
 ```bash
-make clean-e2e   # Tears down the stack and deletes generated state.
+make clean-e2e   # Tears down the stack and removes the images it built.
 ```
 
-If you ran an older version of the stack, `tests/e2e/data/playbooks/server` may be owned by
-`root` and unreadable, which makes `go vet ./...` and `go list ./...` fail with
-`permission denied` before compiling anything. `make clean-e2e` clears this using a throwaway
-container, so no `sudo` is needed. Current stacks run Othela as your own UID and no longer
-create root-owned files.
+Nothing in the stack writes into the source tree: the fixtures under `tests/fixtures/` are
+baked into the git server image at build time, and runtime state stays in container
+filesystems. Earlier versions bind-mounted state into `tests/e2e/data`, which left
+root-owned directories that made `go vet ./...` fail before compiling anything. That cannot
+happen now.
 
 ## Contributing
 <!-- Template: https://github.com/cncf/project-template/blob/main/CONTRIBUTING.md -->
