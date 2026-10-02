@@ -232,7 +232,16 @@ Issue: #15. ADR: ADR-0004. Resolved.
 - [x] Fix e2e manifest: high-performance-proxies now has {role: edge-proxy, tier: high-performance}.
 
 ### 6.2. Fallback HELV_TEST_REPO_URL is dead code
-- [ ] Remove fallback branch and HELV_TEST_REPO_URL variable from docker-compose.e2e.yaml if unused.
+Now provably unreachable, not merely suspected. `handleSync` in
+`cmd/othela/server.go` falls back to `HELV_TEST_REPO_URL`, then to a hardcoded
+`http://git-server:3000/helvilette/nginx-collection.git`, when
+`pb.Manifest.Spec.Repo` is empty. But `validateSpec` has rejected an empty
+`spec.repo` since ADR-0002, and a manifest that fails validation never becomes a
+playbook, so `Spec.Repo` is never empty for anything `handleSync` iterates over.
+Nothing sets the variable either: ADR-0007 removed it from the compose file, and
+`cmd/othela/server.go:242` is now its only mention in the tree.
+- [ ] Delete the fallback branch, the environment variable and the hardcoded URL.
+      Test scaffolding does not belong in the dispatch path.
 
 ### 6.3. Nested e2e manifest is outdated compared to working tree
 Issue: #20, #24. ADR: ADR-0003. Resolved.
@@ -283,12 +292,17 @@ Issue: #18. Resolved.
 - [x] Resolve ginkgo through the module toolchain so the suite runs under the version
       pinned in go.mod.
 
-### 6.7. cmd/agent/main.go exceeds the file size limit
-CLAUDE.md sets a 500-line ceiling per file. cmd/agent/main.go is 708 lines and
-cmd/othela/server.go is 446. Both will grow further under sections 3.6 and 3.8.
+### 6.7. Two files exceed the file size limit
+AGENTS.md sets a 500-line ceiling per file. Both files that were approaching it
+have now crossed it: `cmd/agent/main.go` is 819 lines and
+`cmd/othela/server.go` is 520. The fleet sync work in ADR-0005 pushed the second
+one over.
 - [ ] Split cmd/agent/main.go by responsibility (config resolution, polling loop,
-      playbook execution, reporting).
-- [ ] Reassess cmd/othela/server.go before it crosses 500 lines.
+      playbook execution, reporting). Extracting `newRootCmd()` as part of this
+      also unblocks the Agent unit-flag guard below.
+- [ ] Split cmd/othela/server.go. The fleet sync methods (`StartFleetSync`,
+      `syncFleetOnce`, `ensureLoader`, `publishFleet`) are one responsibility and
+      move out cleanly; deleting the dead fallback in 6.2 removes a little more.
 
 ### 6.8. CI never ran cmd/agent tests
 Resolved as part of #17. Recorded because the gap existed undetected across several
@@ -318,15 +332,24 @@ Four failure-based runs to validate correct behavior during chaos:
 
 ### 8.0. Next up
 
-- [ ] Emit logs into journald with real journal fields, not a JSON blob in
-      `MESSAGE`. A journald writer behind `pkg/log`, selected when a journal
-      socket is present rather than by a flag. Set `SYSLOG_IDENTIFIER` on both
-      binaries and rename the units to a shared `helvilette-` prefix, so
-      `journalctl -t 'helvilette*'` and `journalctl -u 'helvilette-*'` select the
-      whole product. Outside systemd, JSON on stdout stays as it is.
-      Why it is first: Alloy and Netdata read journald the moment they are
+ADR-0007 D2 is two pieces of work. The first shipped with the e2e rebuild; the
+second has not started.
+
+- [x] Give both components a predictable name in the journal. The units are
+      `helvilette-othela.service` and `helvilette-agent.service`, each setting
+      `SyslogIdentifier=`, so `journalctl -t 'helvilette*'` and
+      `journalctl -u 'helvilette-*'` select the whole product without knowing
+      either unit name. Asserted by the e2e suite.
+- [ ] Emit real journal fields instead of a JSON blob inside `MESSAGE`. Today
+      stdout reaches journald and the whole JSON line lands in one opaque field,
+      so `journalctl NODE_ID=node-1` does not work and a collector needs a JSON
+      parse stage. Wanted: a journald writer behind `pkg/log`, selected when
+      `/run/systemd/journal/socket` exists rather than by a flag, because a flag
+      is one more thing an operator has to know. Outside systemd, JSON on stdout
+      stays exactly as it is.
+      Why it matters: Alloy and Netdata read journald the moment they are
       installed, so this is what makes Helvilette's logs collectable without
-      handing any collector a path. Decided in ADR-0007 D2.
+      handing any collector a path. ADR-0007 R1, D2.
 - [x] Delete `vagrant/` and rebuild the manual-test environment as a Compose
       stack of systemd-in-container nodes. ADR-0007 D1, D3, D4, D5.
       `docker-compose.e2e.yaml` is now `e2e.compose.yml` and is the only
@@ -346,9 +369,11 @@ Four failure-based runs to validate correct behavior during chaos:
       ADR-0005.
 - [x] Issue #33: Fix unknown flag `--fleet-repo` in E2E. The `docker-compose.e2e.yaml` uses `--fleet-repo` which Othela CLI does not actually support. Either implement the flag or update the E2E setup.
       Already fixed by commit `caab99c`, which added the flag hours after the issue
-      was filed. `TestE2EComposeFlagsExistOnTheCLI` now reads the `othela` service's
-      command list out of the compose file and asserts every long flag it passes is
-      registered on the CLI, so the two cannot drift apart again.
+      was filed. `TestOthelaUnitFlagsExistOnTheCLI` reads the `ExecStart=` of
+      `tests/images/node/helvilette-othela.service` and asserts every long flag it
+      passes is registered on the CLI, so the two cannot drift apart again. It
+      reads the unit rather than a compose `command:` because ADR-0007 moved the
+      flags there. Verified to fail when the unit passes a flag the CLI lacks.
 - [x] Issue #34: Fix playbook loader silent skip. Othela `loader.go` silently ignores playbooks (returns `count: 0`) under certain directory conditions without emitting any `Warn` logs, making debugging difficult. Add proper trace logging.
       Every path the walk declines now logs with a `skip_reason`; a near-miss
       filename such as `helvilette.yaml` warns instead of vanishing; the closing
@@ -367,7 +392,8 @@ Four failure-based runs to validate correct behavior during chaos:
 
 ### Follow-ups opened during this remediation
 
-- [ ] Issue #38 follow-up: add a `-race` step to CI. `make test` runs without it.
+- [x] Issue #38 follow-up: CI runs a `-race` step. `make test` still does not, so
+      a local run will not catch what CI does.
 - [ ] Git credential support for private fleet and playbook repositories. Neither
       Othela nor the Agent can authenticate to a Git server today; both clone
       anonymously. Deliberately out of scope for ADR-0007, which brings the public
@@ -390,7 +416,7 @@ Four failure-based runs to validate correct behavior during chaos:
       guards Othela's. Blocked on a small refactor: the Agent builds its
       `cobra.Command` inside `main()`, so no test can reach its flag set.
       Extracting `newRootCmd()` also brings that `main()` back under the
-      function-length rule in CLAUDE.md.
+      function-length rule in AGENTS.md, and overlaps with 6.7.
 
 ### Vagrant manual-test environment: replaced
 
