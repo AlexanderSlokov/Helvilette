@@ -409,9 +409,29 @@ make down                # Stop and remove, including volumes
 ```
 
 Per-unit output lives in each node's journal, not in its container log, so `make logs` shows
-the systemd boot transcript while `make journal` shows Helvilette. Both binaries set a
-`helvilette-` syslog identifier, so `journalctl -t 'helvilette*'` selects the whole product
-without knowing either unit name.
+the systemd boot transcript while `make journal` shows Helvilette.
+
+### Finding Helvilette on a Running Machine
+
+Under systemd, Helvilette writes to journald as **native journal fields** rather than as a JSON
+line inside one message. So every value it logs is something you can query:
+
+```bash
+journalctl -t 'helvilette*'              # the whole product, without knowing a unit name
+journalctl -u 'helvilette-*'             # same, by unit
+journalctl NODE_ID=node-1                # everything about one node
+journalctl COMPONENT=playbook-loader     # everything one component said
+journalctl JOB_ID=job-abc123 -o json     # one job, with every field
+```
+
+Messages read as prose, so `journalctl -o cat` is legible to a human while `-o json` gives a
+collector every field without a parse stage. Nothing has to be told a log file path: Grafana
+Alloy and Netdata read journald the moment they are installed. See
+[ADR-0007](docs/informations/ADRs/ADR-0007.md).
+
+Run outside systemd — from a terminal, or under a plain container runtime — Helvilette prints
+JSON to stdout instead, and `HELVILETTE_DEV=1` switches that to human-readable console output.
+The choice is automatic, by whether systemd owns the process's stderr; there is no flag.
 
 ### Cleaning Up After E2E Runs
 

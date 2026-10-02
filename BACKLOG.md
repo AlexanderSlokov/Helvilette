@@ -343,16 +343,18 @@ second has not started.
       `SyslogIdentifier=`, so `journalctl -t 'helvilette*'` and
       `journalctl -u 'helvilette-*'` select the whole product without knowing
       either unit name. Asserted by the e2e suite.
-- [ ] Emit real journal fields instead of a JSON blob inside `MESSAGE`. Today
-      stdout reaches journald and the whole JSON line lands in one opaque field,
-      so `journalctl NODE_ID=node-1` does not work and a collector needs a JSON
-      parse stage. Wanted: a journald writer behind `pkg/log`, selected when
-      `/run/systemd/journal/socket` exists rather than by a flag, because a flag
-      is one more thing an operator has to know. Outside systemd, JSON on stdout
-      stays exactly as it is.
-      Why it matters: Alloy and Netdata read journald the moment they are
-      installed, so this is what makes Helvilette's logs collectable without
-      handing any collector a path. ADR-0007 R1, D2.
+- [x] Emit real journal fields instead of a JSON blob inside `MESSAGE`.
+      `pkg/log/journald.go` sends natively through `journal.Send` when
+      `JOURNAL_STREAM` says systemd owns our stderr, so `journalctl NODE_ID=node-1`
+      and `journalctl COMPONENT=playbook-loader` work and `MESSAGE` reads as prose.
+      No `JSON` field: `journalctl -o json` reconstructs the record from the
+      fields, so duplicating the line would only double the volume.
+      Selection is by `JOURNAL_STREAM`, not by socket existence as ADR-0007 D2
+      first wrote: the socket also exists when an operator runs the binary in a
+      terminal, where upgrading would swallow their output. D2 is amended in place.
+      The binary derives `SYSLOG_IDENTIFIER` because a native send does not
+      inherit the unit's, and two guards assert the unit and the binary agree.
+
 - [x] Delete `vagrant/` and rebuild the manual-test environment as a Compose
       stack of systemd-in-container nodes. ADR-0007 D1, D3, D4, D5.
       `docker-compose.e2e.yaml` is now `e2e.compose.yml` and is the only
@@ -395,6 +397,11 @@ second has not started.
 
 ### Follow-ups opened during this remediation
 
+- [ ] `execStartOf` and `longFlagsIn` are duplicated between
+      `cmd/othela/deployment_test.go` and `cmd/agent/deployment_test.go`, and
+      `syslogIdentifierOf` now joins them. Sharing needs a third package for unit
+      file parsing, which is more structure than three short helpers justify
+      today. Revisit if a fourth guard appears.
 - [ ] `Agent.ExecutePlaybook` in `cmd/agent/executor.go` is about 110 lines,
       against the 4-20 line rule in AGENTS.md. It does four things: resolve the
       playbook path, materialise the Git repository, build and run the

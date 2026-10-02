@@ -119,7 +119,7 @@ var _ = Describe("Fleet sync", func() {
 		logs, err := journal("othela", "helvilette-othela")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(logs).To(ContainSubstring(sha), "othela did not report the commit it synced to")
-		Expect(logs).To(ContainSubstring(`"message":"fleet updated"`))
+		Expect(logs).To(ContainSubstring(`"MESSAGE":"fleet updated"`))
 	})
 })
 
@@ -137,14 +137,14 @@ var _ = Describe("Label-based dispatch", func() {
 		for _, node := range []string{"node-1", "node-2"} {
 			Eventually(func() (string, error) { return journal(node, "helvilette-agent") },
 				4*time.Minute, 5*time.Second).
-				Should(ContainSubstring(`"message":"playbook execution succeeded"`),
+				Should(ContainSubstring(`"MESSAGE":"playbook execution succeeded"`),
 					node+" never ran a playbook to completion")
 		}
 
 		By("reporting execution back to Othela")
 		Eventually(func() (string, error) { return journal("othela", "helvilette-othela") },
 			4*time.Minute, 5*time.Second).
-			Should(ContainSubstring(`"message":"report received"`))
+			Should(ContainSubstring(`"MESSAGE":"report received"`))
 	})
 
 	// ADR-0006 in the running stack: the loader must account for every path it
@@ -154,9 +154,9 @@ var _ = Describe("Label-based dispatch", func() {
 		logs, err := journal("othela", "helvilette-othela")
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(logs).To(ContainSubstring(`"skip_reason":"hidden_dir"`),
+		Expect(logs).To(ContainSubstring(`"SKIP_REASON":"hidden_dir"`),
 			"the fleet cache contains .git; the loader did not say it skipped it")
-		Expect(logs).To(ContainSubstring(`"files_examined":`),
+		Expect(logs).To(ContainSubstring(`"FILES_EXAMINED"`),
 			"the scan summary did not say how many files it looked at")
 	})
 })
@@ -188,8 +188,39 @@ var _ = Describe("Units and journald", func() {
 			out, err := journal(service, identifier)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).NotTo(BeEmpty(), service+" wrote nothing under "+identifier)
-			Expect(out).To(ContainSubstring(`"component":`), "journal entries are not Helvilette's structured logs")
+			Expect(out).To(ContainSubstring(`"COMPONENT"`), "journal entries carry no Helvilette fields")
 		}
+	})
+
+	// The headline of ADR-0007 D2. Before it, every key sat inside one opaque
+	// MESSAGE, so a field query matched nothing and a collector needed a JSON
+	// parse stage before any of this was usable.
+	It("makes Helvilette's own fields queryable", func() {
+		queries := []struct {
+			service, field, value string
+		}{
+			{"node-1", "NODE_ID", "node-1"},
+			{"node-2", "NODE_ID", "node-2"},
+			{"othela", "COMPONENT", "othela"},
+			{"othela", "COMPONENT", "playbook-loader"},
+		}
+
+		for _, q := range queries {
+			out, err := journalMatching(q.service, q.field, q.value)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(out)).NotTo(BeEmpty(),
+				"journalctl "+q.field+"="+q.value+" returned nothing on "+q.service)
+		}
+	})
+
+	// MESSAGE must read as prose, not as a JSON document. That is what makes
+	// `journalctl` and `make journal` legible to a human, and it is the half of
+	// D2 that a field query cannot prove.
+	It("writes messages as prose rather than embedded JSON", func() {
+		out, err := journalMatching("othela", "COMPONENT", "othela")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out).To(ContainSubstring("starting othela"))
+		Expect(out).NotTo(ContainSubstring(`"level":`), "the whole JSON line is still inside MESSAGE")
 	})
 })
 
