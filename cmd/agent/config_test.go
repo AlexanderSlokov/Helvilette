@@ -1,37 +1,14 @@
+// Tests for config.go: the precedence between a YAML file, the environment and
+// the flags, and the provenance each resolved value carries. See ADR-0001.
 package main
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestNewAgent(t *testing.T) {
-	config := AgentConfiguration{
-		OthelaURL:    "http://test:8080/api/v1",
-		NodeID:       "test-agent",
-		PollInterval: 0,
-	}
-
-	agent := NewAgent(config)
-
-	if agent == nil {
-		t.Fatal("NewAgent returned nil")
-	}
-
-	if agent.config.OthelaURL != config.OthelaURL {
-		t.Errorf("OthelaURL = %q, want %q", agent.config.OthelaURL, config.OthelaURL)
-	}
-
-	if agent.config.NodeID != config.NodeID {
-		t.Errorf("NodeID = %q, want %q", agent.config.NodeID, config.NodeID)
-	}
-}
 
 func TestDefaultConfig(t *testing.T) {
 	config := DefaultConfig()
@@ -53,223 +30,6 @@ func TestDefaultConfig(t *testing.T) {
 
 	if config.PollInterval.Seconds() != 5 {
 		t.Errorf("unexpected default PollInterval: %v", config.PollInterval)
-	}
-}
-
-func TestAgent_Poll_Success(t *testing.T) {
-	// Create mock server
-	expectedJob := Job{
-		JobID:        "test-job-123",
-		RepoURL:      "git://git-server:9418/nginx-collection",
-		Version:      "main",
-		PlaybookPath: "playbook.yml",
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/sync/test-agent" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != "GET" {
-			t.Errorf("unexpected method: %s", r.Method)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(expectedJob)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	job, err := agent.Poll()
-	if err != nil {
-		t.Fatalf("Poll failed: %v", err)
-	}
-
-	if job.JobID != expectedJob.JobID {
-		t.Errorf("JobID = %q, want %q", job.JobID, expectedJob.JobID)
-	}
-
-	if job.RepoURL != expectedJob.RepoURL {
-		t.Errorf("RepoURL = %q, want %q", job.RepoURL, expectedJob.RepoURL)
-	}
-
-	if job.PlaybookPath != expectedJob.PlaybookPath {
-		t.Errorf("PlaybookPath = %q, want %q", job.PlaybookPath, expectedJob.PlaybookPath)
-	}
-}
-
-func TestAgent_Poll_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	_, err := agent.Poll()
-	if err == nil {
-		t.Error("expected error for server error response")
-	}
-}
-
-func TestAgent_Poll_InvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("invalid json"))
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	_, err := agent.Poll()
-	if err == nil {
-		t.Error("expected error for invalid JSON response")
-	}
-}
-
-func TestAgent_Poll_ConnectionError(t *testing.T) {
-	config := AgentConfiguration{
-		OthelaURL: "http://localhost:99999/api/v1", // Invalid port
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	_, err := agent.Poll()
-	if err == nil {
-		t.Error("expected error for connection failure")
-	}
-}
-
-func TestAgent_SendReport_Success(t *testing.T) {
-	var receivedReport Report
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/report" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != "POST" {
-			t.Errorf("unexpected method: %s", r.Method)
-		}
-
-		json.NewDecoder(r.Body).Decode(&receivedReport)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	report := Report{
-		NodeID:   "test-agent",
-		JobID:    "job-123",
-		Status:   "Success",
-		TaskLogs: json.RawMessage(`{"result": "ok"}`),
-	}
-
-	err := agent.SendReport(report)
-	if err != nil {
-		t.Fatalf("SendReport failed: %v", err)
-	}
-
-	if receivedReport.NodeID != report.NodeID {
-		t.Errorf("NodeID = %q, want %q", receivedReport.NodeID, report.NodeID)
-	}
-
-	if receivedReport.JobID != report.JobID {
-		t.Errorf("JobID = %q, want %q", receivedReport.JobID, report.JobID)
-	}
-}
-
-func TestAgent_SendReport_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	report := Report{
-		NodeID: "test-agent",
-		JobID:  "job-123",
-		Status: "Success",
-	}
-
-	err := agent.SendReport(report)
-	if err == nil {
-		t.Error("expected error for server error response")
-	}
-}
-
-// TestAgent_ExecutePlaybook_RejectsEmptyJob verifies that a job with neither
-// RepoURL nor PlaybookPath is rejected with a clear error. Before issue #25
-// this branch silently wrote empty PlaybookContent to a temp file.
-func TestAgent_ExecutePlaybook_RejectsEmptyJob(t *testing.T) {
-	agent := NewAgent(DefaultConfig())
-
-	job := &Job{
-		JobID: "test-empty-123",
-	}
-
-	status, output := agent.ExecutePlaybook(job)
-	if status != "Failed" {
-		t.Errorf("expected status %q, got %q", "Failed", status)
-	}
-
-	if len(output) == 0 {
-		t.Fatal("expected non-empty error output")
-	}
-}
-
-func TestAgent_ProcessJob_SkipsSameJob(t *testing.T) {
-	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	// Set lastJobID to same as incoming job
-	agent.lastJobID = "job-123"
-
-	job := &Job{
-		JobID:        "job-123",
-		RepoURL:      "git://git-server:9418/test",
-		PlaybookPath: "playbook.yml",
-	}
-
-	err := agent.ProcessJob(job)
-	if err != nil {
-		t.Fatalf("ProcessJob failed: %v", err)
-	}
-
-	// Should not have made any HTTP calls since job was skipped
-	if callCount != 0 {
-		t.Errorf("expected 0 HTTP calls for same job, got %d", callCount)
 	}
 }
 
@@ -315,6 +75,7 @@ func writeConfigFile(t *testing.T, body string) string {
 
 // The config file is an explicit, version-controlled artifact and outranks ambient
 // environment variables. See docs/informations/ADRs/ADR-0001.md.
+
 func TestLoadConfig_YAMLOverridesEnv(t *testing.T) {
 	t.Setenv("OTHELA_URL", "http://from-env:8080")
 	t.Setenv("NODE_ID", "env-node")
@@ -347,6 +108,7 @@ workspaceDir: "/tmp/file"
 }
 
 // Env still fills in whatever the config file leaves unset.
+
 func TestLoadConfig_EnvFillsGapsInYAML(t *testing.T) {
 	t.Setenv("NODE_ID", "env-node")
 	t.Setenv("POLL_INTERVAL", "30s")
@@ -371,6 +133,7 @@ func TestLoadConfig_EnvFillsGapsInYAML(t *testing.T) {
 }
 
 // CLI flags stay the highest-priority source, above both the file and the environment.
+
 func TestLoadConfig_CLIOverridesYAMLAndEnv(t *testing.T) {
 	t.Setenv("OTHELA_URL", "http://from-env:8080")
 	t.Setenv("NODE_ID", "env-node")
@@ -394,6 +157,7 @@ nodeID: "file-node"
 
 // Labels merge per key across sources, with the higher-priority source winning
 // only the keys it actually sets.
+
 func TestLoadConfig_LabelsMergePerKey(t *testing.T) {
 	t.Setenv("AGENT_LABELS", "env=production,region=eu-west,owner=sre")
 
@@ -425,6 +189,7 @@ func TestLoadConfig_LabelsMergePerKey(t *testing.T) {
 }
 
 // A misspelled key must fail at startup instead of leaving the agent on defaults.
+
 func TestLoadConfig_UnknownKeyIsRejected(t *testing.T) {
 	// The exact spelling that shipped in the README before this was fixed.
 	path := writeConfigFile(t, `otherlaUrl: "http://othela-server:8080/api/v1"
@@ -439,6 +204,7 @@ nodeId: "node-01"
 
 // Provenance must name the source that actually won each value, so that an operator can
 // explain a node's behaviour from its logs alone.
+
 func TestLoadConfig_ProvenanceReportsWinningSource(t *testing.T) {
 	t.Setenv("OTHELA_URL", "http://from-env:8080")
 	t.Setenv("NODE_ID", "env-node")
@@ -474,6 +240,7 @@ labels:
 
 // When nodeID falls through to the hostname, the provenance must say so rather than
 // reporting a bare "default", since the two have very different implications for a fleet.
+
 func TestLoadConfig_ProvenanceDistinguishesHostnameDefault(t *testing.T) {
 	hostname, err := os.Hostname()
 	if err != nil || hostname == "" {
@@ -538,6 +305,7 @@ func TestFormatConfig(t *testing.T) {
 }
 
 // An empty config file is valid and leaves the lower-priority sources intact.
+
 func TestLoadConfig_EmptyFileIsNotAnError(t *testing.T) {
 	t.Setenv("NODE_ID", "env-node")
 

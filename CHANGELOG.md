@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+
+* **Unreachable test scaffolding in Othela's dispatch path.** `handleSync` fell
+  back to `HELV_TEST_REPO_URL` and then to a hardcoded
+  `http://git-server:3000/helvilette/nginx-collection.git` when a manifest's
+  `spec.repo` was empty. `validateSpec` has rejected an empty `spec.repo` since
+  ADR-0002, and a manifest that fails validation never becomes a playbook, so the
+  branch could not be reached. Nothing set the variable either once the e2e
+  rebuild dropped it from the compose file. (BACKLOG 6.2)
+
+### Changed
+
+* **Two files that exceeded the 500-line ceiling in AGENTS.md are split by
+  responsibility.** `cmd/agent/main.go`, 819 lines, becomes `config.go`,
+  `agent.go`, `executor.go` and `main.go`; its tests are split the same way so a
+  test file still sits beside what it tests. `cmd/othela/server.go`, 530 lines,
+  becomes `server.go` and `fleetsync.go`. No behaviour change: the test count is
+  unchanged and the race detector stays clean. The largest non-test file in the
+  tree is now 410 lines. (BACKLOG 6.7)
+
+* `handleSync` was 80 lines against a 4-20 line rule. It is now the HTTP concerns
+  plus `jobForLabels`, `jobFor` and `injectedJob`, the last of which documents
+  why a server built by `NewServerWithJob` stops serving its fixture as soon as a
+  real manifest loads.
+
+### Added
+
+* `TestAgentUnitFlagsExistOnTheCLI` guards the Agent's systemd unit against the
+  flag drift that caused issue #33, the way `TestOthelaUnitFlagsExistOnTheCLI`
+  already guarded Othela's. It needed `newRootCmd()` to be separated from `main()`
+  first: a `cobra.Command` built inside `main` cannot be reached from a test.
+  Both guards are verified to fail when a unit passes a flag the binary lacks.
+
+
 ### Changed (Breaking)
 
 * **The Vagrant manual-test environment is deleted and replaced by a Compose stack
