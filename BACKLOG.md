@@ -240,8 +240,10 @@ Now provably unreachable, not merely suspected. `handleSync` in
 playbook, so `Spec.Repo` is never empty for anything `handleSync` iterates over.
 Nothing sets the variable either: ADR-0007 removed it from the compose file, and
 `cmd/othela/server.go:242` is now its only mention in the tree.
-- [ ] Delete the fallback branch, the environment variable and the hardcoded URL.
-      Test scaffolding does not belong in the dispatch path.
+- [x] Deleted the fallback branch, the environment variable and the hardcoded URL.
+      `jobFor` now reads `spec.repo` directly, with a comment recording why no
+      fallback is needed. `handleSync` was 80 lines and is now four functions:
+      the HTTP concerns, `jobForLabels`, `jobFor` and `injectedJob`.
 
 ### 6.3. Nested e2e manifest is outdated compared to working tree
 Issue: #20, #24. ADR: ADR-0003. Resolved.
@@ -297,12 +299,13 @@ AGENTS.md sets a 500-line ceiling per file. Both files that were approaching it
 have now crossed it: `cmd/agent/main.go` is 819 lines and
 `cmd/othela/server.go` is 520. The fleet sync work in ADR-0005 pushed the second
 one over.
-- [ ] Split cmd/agent/main.go by responsibility (config resolution, polling loop,
-      playbook execution, reporting). Extracting `newRootCmd()` as part of this
-      also unblocks the Agent unit-flag guard below.
-- [ ] Split cmd/othela/server.go. The fleet sync methods (`StartFleetSync`,
-      `syncFleetOnce`, `ensureLoader`, `publishFleet`) are one responsibility and
-      move out cleanly; deleting the dead fallback in 6.2 removes a little more.
+- [x] Split cmd/agent/main.go, 819 lines, into `config.go` (321), `agent.go` (334),
+      `executor.go` (134) and `main.go` (112). `main_test.go` was split the same
+      way, so a test file still sits beside what it tests. `newRootCmd()` is
+      extracted, which unblocked the Agent unit-flag guard below.
+- [x] Split cmd/othela/server.go, 530 lines, into `server.go` (410) and
+      `fleetsync.go` (130). Every non-test file in the tree is now under the
+      ceiling; the largest is server.go at 410.
 
 ### 6.8. CI never ran cmd/agent tests
 Resolved as part of #17. Recorded because the gap existed undetected across several
@@ -392,6 +395,13 @@ second has not started.
 
 ### Follow-ups opened during this remediation
 
+- [ ] `Agent.ExecutePlaybook` in `cmd/agent/executor.go` is about 110 lines,
+      against the 4-20 line rule in AGENTS.md. It does four things: resolve the
+      playbook path, materialise the Git repository, build and run the
+      `ansible-playbook` command, and normalise the output. Splitting it was left
+      out of the 6.7 file split deliberately, to keep that change mechanical and
+      reviewable.
+
 - [x] Issue #38 follow-up: CI runs a `-race` step. `make test` still does not, so
       a local run will not catch what CI does.
 - [ ] Git credential support for private fleet and playbook repositories. Neither
@@ -412,11 +422,10 @@ second has not started.
 - [ ] The e2e suite asserts both agents ran a playbook, but not that the right
       playbook ran on the right node. Assert the job ID, which carries the
       manifest and nodeGroup name, rather than only that execution succeeded.
-- [ ] Guard the Agent's unit flags the way `TestOthelaUnitFlagsExistOnTheCLI`
-      guards Othela's. Blocked on a small refactor: the Agent builds its
-      `cobra.Command` inside `main()`, so no test can reach its flag set.
-      Extracting `newRootCmd()` also brings that `main()` back under the
-      function-length rule in AGENTS.md, and overlaps with 6.7.
+- [x] Guard the Agent's unit flags the way `TestOthelaUnitFlagsExistOnTheCLI`
+      guards Othela's. `TestAgentUnitFlagsExistOnTheCLI` reads the `ExecStart=` of
+      `tests/images/node/helvilette-agent.service` against `newRootCmd()`.
+      Verified to fail when the unit passes a flag the binary does not define.
 
 ### Vagrant manual-test environment: replaced
 
