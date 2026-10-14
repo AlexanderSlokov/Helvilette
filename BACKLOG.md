@@ -176,6 +176,9 @@ rescue tool is `ansible-playbook`.
 - [ ] One Go binary for the agent.
 - [ ] Pinned Ansible shipped with it. Operators can bring their own if it meets
       the pinned version. (ADR-0008 D6, issue #43)
+- [ ] Publish an Ansible compatibility matrix: the lowest and highest
+      major.minor versions Helvilette is tested with. CI runs the suite against
+      each end. (ADR-0008 D6)
 - [ ] Production systemd unit for the agent. (was 3.5)
 - [ ] Install with one line in cloud-init, or bake with Packer.
 - [ ] Bash install script, non-interactive via `INSTALL_HELVILETTE_*`, and an
