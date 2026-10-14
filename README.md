@@ -1,5 +1,7 @@
 # Helvilette - Declarative Continuous Delivery for Ansible Playbooks.
 
+> **Status: under overhaul.** Per [ADR-0008](docs/informations/ADRs/ADR-0008.md), the agent is being rebuilt to run on its own: it pulls the playbook repository, checks first, applies when allowed, and keeps its own records, with no control plane required. That work comes first. Othela (the control plane) stays in the tree but is frozen. Rolling updates and other multi-node deployment strategies will be coordinated by Othela later, once a real team needs them. The Architecture, Bootstrap and Getting Started sections below still describe the design from before ADR-0008. See [BACKLOG.md](BACKLOG.md) for the roadmap.
+
 Helvilette is a declarative GitOps continuous delivery tool for Ansible that uses **your** Ansible Playbooks to manage desired state on a fleet of nodes. It is designed to be a lightweight and flexible alternative to deploying Ansible configurations via GitOps pull-based model at scale, or at edge.
 
 ## Why Helvilette?
@@ -485,7 +487,10 @@ Helvilette will be used in a cloud native environment or non cloud-native enviro
 
 ## Resources
 
-[TODO: Add links to other helpful information (roadmap, docs, website, etc.)]
+* Roadmap: [BACKLOG.md](BACKLOG.md)
+* Current direction: [ADR-0008](docs/informations/ADRs/ADR-0008.md), the agent stands alone; Othela is optional and frozen
+* Design doctrine: [Software Design Doctrine Follow the Soviet's Weapons](docs/references/Software%20Design%20Doctrine%20Follow%20the%20Soviet's%20Weapons.md)
+* Architecture decisions: [docs/informations/ADRs/](docs/informations/ADRs/)
 
 ## License
 

@@ -39,6 +39,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+* **Direction: the agent stands alone, and Othela is frozen.**
+  [ADR-0008](docs/informations/ADRs/ADR-0008.md) records the decision. It
+  follows the design doctrine and the roadmap written on 2026-10-11 under
+  `docs/references/`. The agent will pull, check, apply and record on its own,
+  in the way `ansible-pull` works, with no control plane. Othela stays in the
+  tree, but its development stops until a real team needs multi-node
+  coordination; rolling updates will be its job then. Health probes and opt-in
+  remediation stay core agent features.
+
+  `BACKLOG.md` is rewritten into Phases 0 to 3. Each carried item cites its old
+  section as `(was x.y)`. The previous backlog is archived verbatim in
+  `docs/references/plans/backlog_v0_othela_first.md`. The agent's current gaps
+  against the new direction are tracked in issue #43. No code changed in this
+  entry.
+
 * **Behaviour outside systemd is unchanged**, and the rule for choosing is now the
   one systemd documents. The sink is selected by `JOURNAL_STREAM`, which systemd
   sets only for its own units, not by the presence of
