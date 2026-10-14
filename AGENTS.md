@@ -2,6 +2,13 @@
 
 ## 0. Workflow process
 
+### At the start and end of a session
+
+1. Start by reading "Next session" in `BACKLOG.md`. It says what was done last
+   and what to do next, so the history does not need re-reading.
+2. Before ending, rewrite that section: what this session finished, what to do
+   next in order, and what waits on the owner.
+
 ### When edit BACKLOG file
 
 1. Write sentences short, concise, clear, and accurate.

@@ -18,8 +18,49 @@ Helvilette is being rebuilt around a standalone agent, per
   [backlog_v0_othela_first.md](docs/references/plans/backlog_v0_othela_first.md).
   A `(was x.y)` tag points to its section number.
 
-Phase 1 is the current focus. Phase 3 opens only when a real team needs
-multi-node coordination.
+Phase 0 is in progress; Phase 1 is the main target. Phase 3 opens only when a
+real team needs multi-node coordination.
+
+---
+
+## Next session
+
+Handoff between the owner and the AI agent, so a new session starts here instead
+of re-reading the history. Update this section at the end of every session.
+
+### Last session (2026-10-14 to 2026-10-15)
+
+- ADR-0008 written with the owner's reasons for D1 to D9, including commit
+  signing with two SSH keys (D9).
+- BACKLOG rewritten into Phases 0 to 3. The old backlog is archived.
+- README carries an "under overhaul" notice. CHANGELOG has an entry.
+- Issues opened: #43 (agent Law 0 violations) and
+  naughtian-website#19 (docs update).
+- All of it sits on branch `docs/adr-0008-standalone-agent`, committed, not
+  pushed, no PR yet. No Go code changed.
+
+### Do next, in order
+
+1. Ask the owner whether to push the branch and open a PR into `develop`.
+2. Write ADR-0009: the manifest schema once `spec.repo` retires (ADR-0008 D3).
+   Minimum scope: label to playbook mapping, auto-apply or plan only per
+   playbook, the fallback to `<fqdn>.yml`, `<hostname>.yml`, `local.yml`.
+   Leave `probes` as a reserved key; its design comes later.
+3. Start Phase 0 code on a new branch from `develop`, smallest items of #43
+   first:
+   - Default workspace to `/var/lib/helvilette/agent` (`cmd/agent/config.go`).
+   - Write `extra_vars` outside the checkout, atomically, and return the error
+     (`cmd/agent/executor.go`). Split `ExecutePlaybook` at the same time; it is
+     about 110 lines.
+4. Then the larger #43 items: repo URL, branch and allowed signers in
+   `agent.yaml`; the agent reads `helvilette.yml` from its own checkout; the
+   Othela client leaves the run path; check run before apply.
+
+### Waiting on the owner
+
+- The `ansible-pull` scouting (Phase 0) runs on the owner's VMs for at least a
+  week. Its result closes the open question in ADR-0008 D2. Do not claim
+  advantages over `ansible-pull` beyond the three in D2 until then.
 
 ---
 
