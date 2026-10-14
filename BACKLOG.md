@@ -57,6 +57,7 @@ what it does.
       repository, for at least one week.
 - [ ] Try `--sleep`, `--only-if-changed`, `--check`, `--checkout`,
       `--verify-commit`, and its `<hostname>.yml` / `local.yml` selection.
+      Check that `--verify-commit` accepts SSH signatures. (ADR-0008 D9)
 - [ ] Break it on purpose: network loss mid-run, power cut, broken playbook,
       two overlapping runs. Record how it reacts and what trace it leaves.
 - [ ] Write the comparison table: feature, `ansible-pull` has it or not, how
@@ -78,8 +79,13 @@ playbook, applies only when allowed, records everything, runs alone.
 - [ ] Poll git with a random splay so a fleet does not pull at once. (was 3.6)
 - [ ] Three triggers: new commit, periodic resync (`--check --diff`), manual
       operator trigger. (was 3.6, 3.12 `sync now`)
-- [ ] Accept only commits signed by a key in `agent.yaml`. Reject the rest,
-      keep the last verified commit, record the rejected SHA. (ADR-0008 D9)
+- [ ] Accept only commits signed with an SSH key from the allowed-signers list
+      in `agent.yaml`. Reject the rest, keep the last verified commit, record
+      the rejected SHA. (ADR-0008 D9)
+- [ ] Refuse to start with fewer than two allowed signers (daily key plus
+      offline key), with a four-point error message. (ADR-0008 D9)
+- [ ] Document key rotation: removing a stolen key from every node through
+      SSH or push-mode `ansible-playbook`. (ADR-0008 D9)
 - [ ] `helvilette.yml` says per playbook: auto-apply, or plan only.
 - [ ] Warn when the share of tasks that cannot run in check mode exceeds a
       threshold. The override is a line in `helvilette.yml`, so it is signed
@@ -318,8 +324,9 @@ free. Only what a large organisation needs may be sold.
 - Check mode has blind spots: `shell` and `command` tasks are often skipped.
   Reports must say so, for example "10 tasks checked, 8 confirmed, 2 unknown:
   shell commands".
-- The commit signing key is the only lock. Where it lives, and what to do when
-  it is lost, needs a written answer before Phase 2.
+- The commit signing key is the only lock. Answered by ADR-0008 D9: SSH keys,
+  at least two, trust list on the node. The remaining risk is a stolen key:
+  removing it needs a channel outside the repository.
 - Syslog warnings are useless unless something ships them to a person.
 - On cloud, Helvilette competes with the landlord's tools (AWS Systems Manager,
   GCP configuration management). Its only edge is one method everywhere.
