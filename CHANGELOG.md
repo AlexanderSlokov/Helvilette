@@ -39,6 +39,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+* **The agent's default workspace is `/var/lib/helvilette/agent`, not
+  `/tmp/helvilette`.** (#43, breaking for anyone relying on the old default)
+  `/tmp` may be wiped on reboot, and `last_run_summary.json` went with it. That
+  file is how the agent detects a run interrupted by a crash or a power cut, so
+  the agent lost exactly the record it needed. The new default matches
+  `StateDirectory=helvilette/agent` in the unit. A non-root developer cannot
+  write there: `make run-agent` now passes `--workspace-dir=.agent-workspace`, and
+  the error names the path and the flag to change it.
+
+* **Agent state files are written atomically** (#43). `last_run_summary.json`
+  and the extra-vars file go through `writeFileAtomic`: a temporary file in the
+  same directory, `fsync`, then `rename`. A crash mid-write leaves the old file
+  or the new one, never a truncated one. (ADR-0008 D4)
+
+* **`extra_vars` are written to the workspace, not into the Git checkout**
+  (#43). `.helvilette_extra_vars.json` inside the repository dirtied the tree
+  that `git.EnsureRepo` hard-resets. The file is now `extra_vars.json` in the
+  workspace, mode 0600 because it may carry credentials. Its write error used to
+  be discarded, so Ansible ran without the variables and nobody was told; now the
+  job fails and says so.
+
+* The e2e suite matches the one-node stack. `node-2` was removed from
+  `e2e.compose.yml` on purpose in `0e2e07c` to save resources, but four specs
+  still waited for it and failed after their timeouts. Agent nodes are now listed
+  once, in `agentNodes` in `tests/e2e/compose_test.go`, and every spec loops over
+  that list.
+
+* `Agent.ExecutePlaybook` was about 110 lines. It is now one function per step:
+  `ensureWorkspace`, `resolvePlaybook`, `checkoutPlaybook`, `ansibleCommand`,
+  `ansibleArgs`, `writeExtraVars`, `runAnsible`, `asJSONOutput`. Each is within the
+  20-line limit in AGENTS.md. Behaviour is unchanged apart from the three items
+  above.
+
 * **Direction: the agent stands alone, and Othela is frozen.**
   [ADR-0008](docs/informations/ADRs/ADR-0008.md) records the decision. It
   follows the design doctrine and the roadmap written on 2026-10-11 under

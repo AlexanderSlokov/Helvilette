@@ -28,33 +28,36 @@ real team needs multi-node coordination.
 Handoff between the owner and the AI agent, so a new session starts here instead
 of re-reading the history. Update this section at the end of every session.
 
-### Last session (2026-10-14 to 2026-10-15)
+### Last session (2026-10-15)
 
-- ADR-0008 written with the owner's reasons for D1 to D9, including commit
-  signing with two SSH keys (D9).
-- BACKLOG rewritten into Phases 0 to 3. The old backlog is archived.
-- README carries an "under overhaul" notice. CHANGELOG has an entry.
-- Issues opened: #43 (agent Law 0 violations) and
-  naughtian-website#19 (docs update).
-- All of it sits on branch `docs/adr-0008-standalone-agent`, committed, not
-  pushed, no PR yet. No Go code changed.
+- Doctrine and roadmap aligned with ADR-0008: daemon allowed for Helvilette,
+  probes section, SSH signing, immutable audit log free, Google SRE 70% figure
+  cited instead of the unsourced 80%.
+- First #43 fixes on branch `fix/43-agent-state-on-disk`, cut from
+  `docs/adr-0008-standalone-agent`. Workspace defaults to
+  `/var/lib/helvilette/agent`; state files written atomically
+  (`cmd/agent/statefile.go`); `extra_vars` moved out of the checkout;
+  `ExecutePlaybook` split.
+- e2e suite fixed for the one-node stack (`agentNodes`). `node-2` was scaled
+  down on purpose by the owner in `0e2e07c`. `make test` and `make e2e` pass,
+  10 of 10 specs.
+- Both branches pushed. No PR, by the owner's choice.
 
 ### Next
 
-1. Ask the owner whether to push the branch and open a PR into `develop`.
-2. Write ADR-0009: the manifest schema once `spec.repo` retires (ADR-0008 D3).
+1. Write ADR-0009: the manifest schema once `spec.repo` retires (ADR-0008 D3).
    Minimum scope: label to playbook mapping, auto-apply or plan only per
    playbook, the fallback to `<fqdn>.yml`, `<hostname>.yml`, `local.yml`.
-   Leave `probes` as a reserved key; its design comes later.
-3. Start Phase 0 code on a new branch from `develop`, smallest items of #43
-   first:
-   - Default workspace to `/var/lib/helvilette/agent` (`cmd/agent/config.go`).
-   - Write `extra_vars` outside the checkout, atomically, and return the error
-     (`cmd/agent/executor.go`). Split `ExecutePlaybook` at the same time; it is
-     about 110 lines.
-4. Then the larger #43 items: repo URL, branch and allowed signers in
-   `agent.yaml`; the agent reads `helvilette.yml` from its own checkout; the
-   Othela client leaves the run path; check run before apply.
+   Leave `probes` as a reserved key; its design comes later. Ask the owner
+   short questions; it is a design decision.
+2. Then the larger #43 items, on a branch from `fix/43-agent-state-on-disk`:
+   repo URL, branch and allowed signers in `agent.yaml`; the agent reads
+   `helvilette.yml` from its own checkout; the Othela client and
+   `--othela-url` leave the agent entirely (decided 2026-10-15, no
+   deprecation); check run before apply.
+3. That change rewrites the e2e suite: the agent node no longer depends on
+   Othela, and the dispatch specs in `tests/e2e/gitops_test.go` test the
+   standalone agent instead.
 
 ### Waiting on the owner
 
@@ -75,10 +78,15 @@ the record), with Othela stopped.
 - [ ] Fix the Law 0 violations in issue #43:
   - [ ] Remove `RegisterNode`, `Poll` and `SendReport` from the agent's run
         path. The agent reads `helvilette.yml` from its own checkout.
-  - [ ] Default workspace to `/var/lib/helvilette/agent`, not `/tmp`.
+  - [ ] Remove `--othela-url`, `OTHELA_URL` and `othelaURL` outright, with no
+        deprecation period: nobody uses them yet. No "standalone" flag either;
+        standalone is the only mode (ADR-0008 D1). Update the README agent
+        config table, `helvilette-agent.service`, and drop the agent node's
+        `depends_on: othela` in `e2e.compose.yml`.
+  - [x] Default workspace to `/var/lib/helvilette/agent`, not `/tmp`.
   - [ ] Run `--check --diff` before every apply.
-  - [ ] Write `extra_vars` outside the checkout, atomically, and return the
-        error.
+  - [x] Write `extra_vars` outside the checkout, atomically, and return the
+        error. `last_run_summary.json` is written atomically too.
 - [ ] Repo URL, branch and signing keys go in `agent.yaml`, layered as in
       ADR-0001, like `ansible-pull -U -C`. (ADR-0008 D2)
 - [ ] Playbook selection: `helvilette.yml` when present, otherwise
@@ -380,10 +388,8 @@ Carried from the archived backlog. Resolved items stay there.
 
 - [ ] e2e in CI, or document it as a manual pre-release step. Issue #24.
       Needs image layer caching and `timeout-minutes`. (was 6.5)
-- [ ] `Agent.ExecutePlaybook` in `cmd/agent/executor.go` is about 110 lines,
-      against the 4-20 line rule. It resolves the path, materialises the repo,
-      runs Ansible and normalises output. Split it as part of Phase 0.
-      (was 8)
+- [x] `Agent.ExecutePlaybook` in `cmd/agent/executor.go` was about 110 lines.
+      Split into one function per step, each within 20 lines. (was 8, #43)
 - [ ] `execStartOf`, `longFlagsIn` and `syslogIdentifierOf` are duplicated
       between `cmd/othela/deployment_test.go` and
       `cmd/agent/deployment_test.go`. Revisit if a fourth guard appears.
