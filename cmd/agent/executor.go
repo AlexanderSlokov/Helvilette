@@ -1,9 +1,9 @@
-// Running a playbook: materialising the job's Git repository and handing it to
-// ansible-playbook, then capturing what Ansible said about it.
+// Running one playbook with ansible-playbook and keeping what Ansible said.
 //
 // Split out of main.go, which exceeded the 500-line ceiling in AGENTS.md.
-// See BACKLOG 6.7. ExecutePlaybook itself was later split into one function
-// per step, from about 110 lines; see issue #43.
+// See BACKLOG 6.7. ExecutePlaybook was later split into one function per step
+// (issue #43), and then lost its job-resolution half when the agent stopped
+// receiving jobs from Othela: cycle.go now decides what runs (ADR-0008 D1).
 package main
 
 import (
@@ -12,129 +12,97 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
-	"helvilette/pkg/git"
 	"helvilette/pkg/log"
+	"helvilette/pkg/manifest"
 )
 
-// playbookTarget is where a job's playbook lives on this node, and the
-// directory ansible-playbook runs from so that roles/ resolves.
-type playbookTarget struct {
-	file    string
-	workDir string
+// playbookRun is one playbook to run for one node, as cycle.go selected it.
+type playbookRun struct {
+	runID   string
+	name    string // spec.playbooks[].name
+	file    string // absolute path inside the checkout
+	workDir string // checkout root, so roles/ resolves
+	mode    manifest.ApplyMode
+	group   manifest.NodeGroup // the matched nodeGroup: its extra_vars and vault file apply
+}
+
+// playbookRunner runs one playbook and reports whether it succeeded. Tests
+// replace it, so the cycle can be tested without Ansible installed.
+type playbookRunner interface {
+	Run(run playbookRun) (succeeded bool)
+}
+
+// ansibleRunner runs playbooks with the ansible-playbook on PATH.
+type ansibleRunner struct {
+	workspaceDir string
 }
 
 // extraVarsFileName lives in the workspace, not in the checkout. Writing it into
 // the repository dirtied the tree that git.EnsureRepo hard-resets. Issue #43.
 const extraVarsFileName = "extra_vars.json"
 
-// ExecutePlaybook runs the job's playbook and returns its status and Ansible's
-// JSON output, or a JSON error document when it never got as far as Ansible.
+// Run executes the playbook and saves Ansible's output, whatever the result.
 //
-//	status, output := agent.ExecutePlaybook(&Job{JobID: "j1", RepoURL: url, PlaybookPath: "site.yml"})
-func (a *Agent) ExecutePlaybook(job *Job) (status string, output []byte) {
-	if err := a.ensureWorkspace(); err != nil {
-		return failedRun(job.JobID, err)
-	}
-	target, err := a.resolvePlaybook(job)
+//	ok := ansibleRunner{workspaceDir: ws}.Run(playbookRun{name: "web", file: f, workDir: d, mode: manifest.ApplyAuto})
+func (r ansibleRunner) Run(run playbookRun) bool {
+	cmd, err := r.command(run)
 	if err != nil {
-		return failedRun(job.JobID, err)
+		logRunError(run, err)
+		r.saveOutput(run, errorDocument(err))
+		return false
 	}
-	cmd, err := a.ansibleCommand(job, target)
-	if err != nil {
-		return failedRun(job.JobID, err)
-	}
-	return runAnsible(job.JobID, cmd)
+	succeeded, output := execute(run, cmd)
+	r.saveOutput(run, output)
+	return succeeded
 }
 
-// ensureWorkspace creates the workspace, and says how to point it elsewhere
-// when it cannot: since issue #43 the default is under /var/lib, which a
-// non-root developer cannot write.
-func (a *Agent) ensureWorkspace() error {
-	if err := os.MkdirAll(a.config.WorkspaceDir, 0755); err != nil {
-		return fmt.Errorf("cannot create workspace %q: %w; nothing was run. "+
-			"Set --workspace-dir or WORKSPACE_DIR to a writable directory", a.config.WorkspaceDir, err)
-	}
-	return nil
-}
-
-// resolvePlaybook decides where the job's playbook is: in a Git checkout when
-// the job names a repository, otherwise at the path it gives.
-func (a *Agent) resolvePlaybook(job *Job) (playbookTarget, error) {
-	if job.RepoURL != "" {
-		return a.checkoutPlaybook(job)
-	}
-	if job.PlaybookPath != "" {
-		logPlaybookTarget(job.JobID, job.PlaybookPath)
-		return playbookTarget{file: job.PlaybookPath, workDir: filepath.Dir(job.PlaybookPath)}, nil
-	}
-	// Before issue #25 this case wrote PlaybookContent to a temp file, but
-	// inline content delivery has been removed from the wire format.
-	return playbookTarget{}, fmt.Errorf("job %q has neither repo_url nor playbook_path; "+
-		"inline content delivery is no longer supported", job.JobID)
-}
-
-// checkoutPlaybook materialises the job's repository and returns the playbook
-// inside it, defaulting to playbook.yml at the repository root.
-func (a *Agent) checkoutPlaybook(job *Job) (playbookTarget, error) {
-	repoDir := filepath.Join(a.config.WorkspaceDir, "repos", filepath.Base(job.RepoURL))
-	// The resolved SHA is logged, not just the requested ref: a branch name
-	// in the log says nothing about which code actually ran. See ADR-0005.
-	commit, err := git.EnsureRepo(job.RepoURL, repoDir, job.Version)
-	if err != nil {
-		return playbookTarget{}, fmt.Errorf("failed to pull git repo %q at ref %q: %w", job.RepoURL, job.Version, err)
-	}
-	logger := log.WithComponent("executor")
-	logger.Info().Str("job_id", job.JobID).Str("repo_url", job.RepoURL).
-		Str("ref", job.Version).Str("commit", commit).Msg("repo checked out")
-
-	file := filepath.Join(repoDir, "playbook.yml")
-	if job.PlaybookPath != "" && !filepath.IsAbs(job.PlaybookPath) {
-		file = filepath.Join(repoDir, job.PlaybookPath)
-	}
-	return playbookTarget{file: file, workDir: repoDir}, nil
-}
-
-func logPlaybookTarget(jobID, file string) {
-	logger := log.WithComponent("executor")
-	logger.Info().Str("job_id", jobID).Str("playbook_path", file).Msg("executing playbook from source path")
-}
-
-// ansibleCommand builds the ansible-playbook invocation for a resolved target.
-func (a *Agent) ansibleCommand(job *Job, target playbookTarget) (*exec.Cmd, error) {
+// command builds the ansible-playbook invocation for a run.
+func (r ansibleRunner) command(run playbookRun) (*exec.Cmd, error) {
 	ansiblePath, err := exec.LookPath("ansible-playbook")
 	if err != nil {
-		return nil, fmt.Errorf("ansible-playbook executable not found in PATH: %w", err)
+		return nil, fmt.Errorf("ansible-playbook executable not found in PATH: %w; nothing was run", err)
 	}
-	args, err := a.ansibleArgs(job, target)
+	args, err := r.args(run)
 	if err != nil {
 		return nil, err
 	}
 	cmd := exec.Command(ansiblePath, args...)
-	cmd.Dir = target.workDir
+	cmd.Dir = run.workDir
 	cmd.Env = append(os.Environ(), "ANSIBLE_STDOUT_CALLBACK=json")
 	return cmd, nil
 }
 
-// ansibleArgs returns the arguments after the executable. Separate from
-// ansibleCommand so it can be tested on a machine without Ansible.
-func (a *Agent) ansibleArgs(job *Job, target playbookTarget) ([]string, error) {
-	args := []string{"-i", "localhost,", "-c", "local", target.file}
-	if len(job.ExtraVars) == 0 {
+// args returns the arguments after the executable. Separate from command so it
+// can be tested on a machine without Ansible.
+//
+// A plan-mode playbook runs with --check --diff and changes nothing: it is the
+// default for a playbook without `apply: auto` (ADR-0009 D4). Running a check
+// before every auto apply is the next BACKLOG step (ADR-0008 D9).
+func (r ansibleRunner) args(run playbookRun) ([]string, error) {
+	args := []string{"-i", "localhost,", "-c", "local", run.file}
+	if run.mode != manifest.ApplyAuto {
+		args = append(args, "--check", "--diff")
+	}
+	if vaultFile := run.group.Ansible.VaultPasswordFile; vaultFile != "" {
+		args = append(args, "--vault-password-file", vaultFile)
+	}
+	if len(run.group.Ansible.ExtraVars) == 0 {
 		return args, nil
 	}
-	path, err := a.writeExtraVars(job.ExtraVars)
+	path, err := r.writeExtraVars(run.group.Ansible.ExtraVars)
 	if err != nil {
 		return nil, err
 	}
 	return append(args, "-e", "@"+path), nil
 }
 
-// writeExtraVars stores the job's variables in the workspace with mode 0600,
+// writeExtraVars stores the group's variables in the workspace with mode 0600,
 // since extra_vars may carry credentials. The error used to be discarded, so
 // Ansible ran without the variables and nobody was told. Issue #43.
-func (a *Agent) writeExtraVars(vars map[string]string) (string, error) {
-	path := filepath.Join(a.config.WorkspaceDir, extraVarsFileName)
+func (r ansibleRunner) writeExtraVars(vars map[string]string) (string, error) {
+	path := filepath.Join(r.workspaceDir, extraVarsFileName)
 	body, err := json.Marshal(vars)
 	if err != nil {
 		return "", fmt.Errorf("cannot encode extra_vars %v as JSON: %w", vars, err)
@@ -145,31 +113,50 @@ func (a *Agent) writeExtraVars(vars map[string]string) (string, error) {
 	return path, nil
 }
 
-// runAnsible executes the command and returns its status with output that is
-// always valid JSON, wrapping Ansible's raw text when it is not.
-func runAnsible(jobID string, cmd *exec.Cmd) (status string, output []byte) {
+// outputPath is where a playbook's latest Ansible output is kept. It replaces
+// the task log Othela used to receive in a report; the versioned run record is
+// a Phase 1 item. Mode 0600: a --diff can show secrets.
+func (r ansibleRunner) outputPath(run playbookRun) string {
+	name := strings.ReplaceAll(run.name, string(os.PathSeparator), "_")
+	return filepath.Join(r.workspaceDir, "runs", name+".json")
+}
+
+func (r ansibleRunner) saveOutput(run playbookRun, output []byte) {
+	path := r.outputPath(run)
+	err := os.MkdirAll(filepath.Dir(path), 0700)
+	if err == nil {
+		err = writeFileAtomic(path, output, 0600)
+	}
+	if err != nil {
+		logRunError(run, fmt.Errorf("cannot save Ansible output to %s: %w", path, err))
+	}
+}
+
+// execute runs the command and returns whether it succeeded, with output that
+// is always valid JSON.
+func execute(run playbookRun, cmd *exec.Cmd) (bool, []byte) {
 	logger := log.WithComponent("executor")
 	logger.Debug().Str("command", cmd.String()).Str("work_dir", cmd.Dir).Msg("running ansible-playbook")
 
 	output, err := cmd.CombinedOutput()
-	status = "Success"
 	if err != nil {
-		status = "Failed"
-		logger.Warn().Err(err).Str("job_id", jobID).Msg("playbook execution failed")
-	} else {
-		logger.Info().Str("job_id", jobID).Msg("playbook execution succeeded")
+		logger.Warn().Err(err).Str("run_id", run.runID).Str("playbook", run.name).Str("mode", string(run.mode)).
+			Msg("playbook execution failed")
+		return false, asJSONOutput(run, output)
 	}
-	return status, asJSONOutput(jobID, output)
+	logger.Info().Str("run_id", run.runID).Str("playbook", run.name).Str("mode", string(run.mode)).
+		Msg("playbook execution succeeded")
+	return true, asJSONOutput(run, output)
 }
 
 // asJSONOutput passes valid JSON through and wraps anything else, so the
-// report's task log is always parseable.
-func asJSONOutput(jobID string, output []byte) []byte {
+// saved output is always parseable.
+func asJSONOutput(run playbookRun, output []byte) []byte {
 	if json.Valid(output) {
 		return output
 	}
 	logger := log.WithComponent("executor")
-	logger.Warn().Str("job_id", jobID).Msg("ansible output was not valid JSON")
+	logger.Warn().Str("run_id", run.runID).Str("playbook", run.name).Msg("ansible output was not valid JSON")
 	wrapped, _ := json.Marshal(map[string]string{
 		"raw_output": string(output),
 		"error":      "Output was not valid JSON",
@@ -177,11 +164,12 @@ func asJSONOutput(jobID string, output []byte) []byte {
 	return wrapped
 }
 
-// failedRun logs why a job stopped before or around Ansible and returns the
-// reason as the JSON error document the report carries.
-func failedRun(jobID string, err error) (string, []byte) {
-	logger := log.WithComponent("executor")
-	logger.Error().Err(err).Str("job_id", jobID).Msg("job failed before ansible-playbook finished")
+func errorDocument(err error) []byte {
 	body, _ := json.Marshal(map[string]string{"error": err.Error()})
-	return "Failed", body
+	return body
+}
+
+func logRunError(run playbookRun, err error) {
+	logger := log.WithComponent("executor")
+	logger.Error().Err(err).Str("run_id", run.runID).Str("playbook", run.name).Msg("playbook did not run")
 }

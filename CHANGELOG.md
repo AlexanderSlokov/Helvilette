@@ -39,6 +39,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+* **The agent works alone: it pulls its own repository and never talks to
+  Othela** (#43, ADR-0008 D1). Breaking. The agent used to register with
+  Othela, poll it for a job, and report back. `RegisterNode` retried forever, so
+  with Othela down no node did anything. Now every `pollInterval` it:
+  - pulls `repoURL` at `branch` (new settings, in `agent.yaml`, `REPO_URL` /
+    `REPO_BRANCH`, or `--repo-url` / `--branch`);
+  - reads the root `helvilette.yml` (`v1alpha2`, ADR-0009);
+  - runs every playbook matching its labels, in file order, stopping at the
+    first failure.
+
+  A commit runs once, whatever its result, until the next commit (like
+  `ansible-pull --only-if-changed`); an interrupted run is the exception and
+  runs again. `apply: auto` playbooks change the machine; all others run with
+  `--check --diff`. `vault-password-file` is now passed to `ansible-playbook`;
+  it was ignored before.
+
+  The record is local: `last_run_summary.json`, which gains a `reason` field,
+  and each playbook's Ansible output in `runs/<name>.json`, mode 0600.
+
+  Removed outright, no deprecation: `othelaURL`, `OTHELA_URL`, `--othela-url`.
+  A config that still sets `othelaURL` is rejected. `repoURL` is required; the
+  agent refuses to start without it and says how to set it.
+
+* An invalid `pollInterval` from the environment or the CLI is now an error
+  naming its source. It used to be ignored silently, leaving the agent on the
+  default.
+
+* Agent configuration declares each setting once (`cmd/agent/config_layers.go`)
+  with its YAML key, environment variable and flag. The three sources used to
+  be three hand-written blocks that had to be kept in step.
+  `LoadConfig` takes the parsed flags instead of six positional strings.
+
+* e2e: `node-1` pulls `nginx-collection` directly; its root `helvilette.yml` is
+  the first `v1alpha2` fixture. The agent no longer waits for Othela to be
+  healthy. A new spec stops Othela, pushes a commit, and asserts the agent
+  runs it. Failure diagnostics read the agent's saved Ansible output instead of
+  Othela's reports, which no longer arrive.
+
 * **The agent's default workspace is `/var/lib/helvilette/agent`, not
   `/tmp/helvilette`.** (#43, breaking for anyone relying on the old default)
   `/tmp` may be wiped on reboot, and `last_run_summary.json` went with it. That

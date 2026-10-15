@@ -1,233 +1,76 @@
-// Tests for agent.go: polling Othela, reporting back, and declining to repeat a
-// job the node has already run.
+// Tests for agent.go: the agent's wiring, and recovering from a run that a
+// crash, a kill or a power loss cut off (ADR-0008 D5).
 package main
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"helvilette/pkg/types"
 )
 
-func TestNewAgent(t *testing.T) {
-	config := AgentConfiguration{
-		OthelaURL:    "http://test:8080/api/v1",
-		NodeID:       "test-agent",
-		PollInterval: 0,
+// writeBlockerFile returns a regular file, so a directory under it can never
+// be created, whoever runs the test.
+func writeBlockerFile(t *testing.T) string {
+	t.Helper()
+	blocker := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(blocker, nil, 0644); err != nil {
+		t.Fatal(err)
 	}
+	return blocker
+}
+
+func TestNewAgent_UsesGitAndAnsible(t *testing.T) {
+	config := DefaultConfig()
+	config.WorkspaceDir = "/srv/ws"
 
 	agent := NewAgent(config)
 
-	if agent == nil {
-		t.Fatal("NewAgent returned nil")
+	if _, ok := agent.repo.(gitRepoSyncer); !ok {
+		t.Errorf("repo = %T, want gitRepoSyncer", agent.repo)
 	}
-
-	if agent.config.OthelaURL != config.OthelaURL {
-		t.Errorf("OthelaURL = %q, want %q", agent.config.OthelaURL, config.OthelaURL)
-	}
-
-	if agent.config.NodeID != config.NodeID {
-		t.Errorf("NodeID = %q, want %q", agent.config.NodeID, config.NodeID)
+	if runner, ok := agent.playbooks.(ansibleRunner); !ok || runner.workspaceDir != "/srv/ws" {
+		t.Errorf("playbooks = %#v, want ansibleRunner on the workspace", agent.playbooks)
 	}
 }
 
-func TestAgent_Poll_Success(t *testing.T) {
-	// Create mock server
-	expectedJob := Job{
-		JobID:        "test-job-123",
-		RepoURL:      "git://git-server:9418/nginx-collection",
-		Version:      "main",
-		PlaybookPath: "playbook.yml",
+// ADR-0008 D5: an in-progress record at startup means the last run was cut
+// off. It is marked interrupted and the same commit runs again.
+func TestRecoverInterruptedRun_RerunsTheSameCommit(t *testing.T) {
+	agent, runner := cycleAgent(t, repoWith(t, "c1", twoPlaybooks))
+	agent.writeStatusOrWarn(types.NodeStatus{JobID: "c1-old", CommitSHA: "c1", Status: statusInProgress})
+
+	agent.recoverInterruptedRun()
+	if status := mustReadStatus(t, agent); status.Status != statusInterrupted || status.Reason == "" {
+		t.Fatalf("status = %+v, want %q with a reason", status, statusInterrupted)
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/sync/test-agent" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != "GET" {
-			t.Errorf("unexpected method: %s", r.Method)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(expectedJob)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	job, err := agent.Poll()
-	if err != nil {
-		t.Fatalf("Poll failed: %v", err)
-	}
-
-	if job.JobID != expectedJob.JobID {
-		t.Errorf("JobID = %q, want %q", job.JobID, expectedJob.JobID)
-	}
-
-	if job.RepoURL != expectedJob.RepoURL {
-		t.Errorf("RepoURL = %q, want %q", job.RepoURL, expectedJob.RepoURL)
-	}
-
-	if job.PlaybookPath != expectedJob.PlaybookPath {
-		t.Errorf("PlaybookPath = %q, want %q", job.PlaybookPath, expectedJob.PlaybookPath)
+	agent.runCycle()
+	if len(runner.runs) != 2 {
+		t.Errorf("ran %d playbooks after an interrupted run of the same commit, want 2", len(runner.runs))
 	}
 }
 
-func TestAgent_Poll_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
+// A finished run, failed or not, is not repeated after a restart.
+func TestRecoverInterruptedRun_KeepsAFinishedCommit(t *testing.T) {
+	agent, runner := cycleAgent(t, repoWith(t, "c1", twoPlaybooks))
+	agent.writeStatusOrWarn(types.NodeStatus{JobID: "c1-old", CommitSHA: "c1", Status: statusFailed})
 
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
+	agent.recoverInterruptedRun()
+	agent.runCycle()
 
-	_, err := agent.Poll()
-	if err == nil {
-		t.Error("expected error for server error response")
+	if len(runner.runs) != 0 {
+		t.Errorf("ran %v after a restart on an already-run commit, want nothing", runner.names())
 	}
 }
 
-func TestAgent_Poll_InvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("invalid json"))
-	}))
-	defer server.Close()
+func TestRecoverInterruptedRun_ToleratesNoRecord(t *testing.T) {
+	agent, _ := cycleAgent(t, repoWith(t, "c1", twoPlaybooks))
 
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
+	agent.recoverInterruptedRun()
 
-	_, err := agent.Poll()
-	if err == nil {
-		t.Error("expected error for invalid JSON response")
-	}
-}
-
-func TestAgent_Poll_ConnectionError(t *testing.T) {
-	config := AgentConfiguration{
-		OthelaURL: "http://localhost:99999/api/v1", // Invalid port
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	_, err := agent.Poll()
-	if err == nil {
-		t.Error("expected error for connection failure")
-	}
-}
-
-func TestAgent_SendReport_Success(t *testing.T) {
-	var receivedReport Report
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/report" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != "POST" {
-			t.Errorf("unexpected method: %s", r.Method)
-		}
-
-		json.NewDecoder(r.Body).Decode(&receivedReport)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	report := Report{
-		NodeID:   "test-agent",
-		JobID:    "job-123",
-		Status:   "Success",
-		TaskLogs: json.RawMessage(`{"result": "ok"}`),
-	}
-
-	err := agent.SendReport(report)
-	if err != nil {
-		t.Fatalf("SendReport failed: %v", err)
-	}
-
-	if receivedReport.NodeID != report.NodeID {
-		t.Errorf("NodeID = %q, want %q", receivedReport.NodeID, report.NodeID)
-	}
-
-	if receivedReport.JobID != report.JobID {
-		t.Errorf("JobID = %q, want %q", receivedReport.JobID, report.JobID)
-	}
-}
-
-func TestAgent_SendReport_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	report := Report{
-		NodeID: "test-agent",
-		JobID:  "job-123",
-		Status: "Success",
-	}
-
-	err := agent.SendReport(report)
-	if err == nil {
-		t.Error("expected error for server error response")
-	}
-}
-
-// TestAgent_ExecutePlaybook_RejectsEmptyJob verifies that a job with neither
-// RepoURL nor PlaybookPath is rejected with a clear error. Before issue #25
-// this branch silently wrote empty PlaybookContent to a temp file.
-
-func TestAgent_ProcessJob_SkipsSameJob(t *testing.T) {
-	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	config := AgentConfiguration{
-		OthelaURL: server.URL + "/api/v1",
-		NodeID:    "test-agent",
-	}
-	agent := NewAgent(config)
-
-	// Set lastJobID to same as incoming job
-	agent.lastJobID = "job-123"
-
-	job := &Job{
-		JobID:        "job-123",
-		RepoURL:      "git://git-server:9418/test",
-		PlaybookPath: "playbook.yml",
-	}
-
-	err := agent.ProcessJob(job)
-	if err != nil {
-		t.Fatalf("ProcessJob failed: %v", err)
-	}
-
-	// Should not have made any HTTP calls since job was skipped
-	if callCount != 0 {
-		t.Errorf("expected 0 HTTP calls for same job, got %d", callCount)
+	if agent.lastCommit != "" {
+		t.Errorf("lastCommit = %q, want empty on a first start", agent.lastCommit)
 	}
 }

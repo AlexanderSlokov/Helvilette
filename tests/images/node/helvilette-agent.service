@@ -10,16 +10,16 @@ Type=simple
 # Runs as root deliberately: the agent applies system state through Ansible,
 # which installs packages and manages other systemd units.
 
-# Optional, and the only per-node difference. Carries AGENT_LABELS; node-id is
-# left to default to the hostname. The leading dash means a missing file is not
-# an error, so the image boots without one.
+# The per-node settings: REPO_URL, the repository this node pulls, and
+# AGENT_LABELS. node-id is left to default to the hostname. The leading dash
+# means a missing file is not an error; the agent then refuses to start and
+# says repoURL is unset.
 EnvironmentFile=-/etc/helvilette/agent.env
 
 StateDirectory=helvilette/agent
 SyslogIdentifier=helvilette-agent
 
 ExecStart=/usr/local/bin/agent \
-    --othela-url=http://othela:8080/api/v1 \
     --poll-interval=5s \
     --workspace-dir=/var/lib/helvilette/agent
 

@@ -145,11 +145,9 @@ func diagnose() string {
 		report.WriteString("--- compose ps ---\n" + out)
 	}
 
-	othela, err := journal("othela", "helvilette-othela")
-	if err == nil {
-		if failures := failedAnsibleTasks(othela); failures != "" {
-			report.WriteString("--- failed ansible tasks, per Othela's reports ---\n" + failures)
-		}
+	for _, node := range agentNodes {
+		report.WriteString("--- " + node + " last run and failed ansible tasks ---\n")
+		report.WriteString(agentRunReport(node))
 	}
 
 	for _, service := range append([]string{"othela"}, agentNodes...) {
@@ -175,18 +173,29 @@ func journalOf(service string) string {
 	return out
 }
 
-// ansibleReport is one journald entry for a report Othela received. The field
-// names are upper case because they are journal fields now, not keys inside a
-// JSON message; see ADR-0007 D2.
-//
-// TASK_LOGS is a string rather than a nested object: every journal field is a
-// byte string, so Ansible's callback output arrives as JSON text and is decoded
-// separately.
-type ansibleReport struct {
-	Message  string `json:"MESSAGE"`
-	NodeID   string `json:"NODE_ID"`
-	Status   string `json:"STATUS"`
-	TaskLogs string `json:"TASK_LOGS"`
+// agentRunsDir holds each playbook's latest Ansible output, one JSON file per
+// playbook, written by the agent since it stopped reporting to Othela
+// (ADR-0008 D1).
+const agentRunsDir = "/var/lib/helvilette/agent/runs"
+
+// agentRunReport returns a node's last_run_summary.json and every failed Ansible
+// task in its saved output, or why they could not be read. Never returns an
+// error, for the same reason as journalOf.
+func agentRunReport(node string) string {
+	var report strings.Builder
+	if out, err := execIn(node, "cat", agentStatusPath); err == nil {
+		report.WriteString(out + "\n")
+	} else {
+		report.WriteString("last run unavailable: " + err.Error() + "\n")
+	}
+	outputs, err := execIn(node, "sh", "-c", "cat "+agentRunsDir+"/*.json")
+	if err != nil {
+		return report.String() + "ansible output unavailable: " + err.Error() + "\n"
+	}
+	for _, failure := range failedAnsibleTasks(node, outputs) {
+		report.WriteString(failure + "\n")
+	}
+	return report.String()
 }
 
 // ansibleRun is the part of Ansible's JSON callback output that names failures.
@@ -204,55 +213,32 @@ type ansibleRun struct {
 }
 
 // failedAnsibleTasks pulls the task name and message of every failed Ansible
-// task out of Othela's journal. Without this a failing playbook shows up only as
-// "exit status 2", and the reason sits unread inside a report payload.
-//
-// Identical failures are collapsed with a count. An agent retries every poll
-// interval, so a single broken task otherwise fills the report with dozens of
-// copies of itself and buries anything else that failed.
-func failedAnsibleTasks(journalLines string) string {
-	counts := make(map[string]int)
-	var order []string
-
-	for line := range strings.SplitSeq(journalLines, "\n") {
-		var entry ansibleReport
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
+// task out of one or more concatenated Ansible JSON documents. Without this a
+// failing playbook shows up only as "exit status 2", and the reason sits unread
+// in a file on the node. A document that does not parse ends the scan rather
+// than failing the diagnostic.
+func failedAnsibleTasks(node, outputs string) []string {
+	var failures []string
+	dec := json.NewDecoder(strings.NewReader(outputs))
+	for {
+		var run ansibleRun
+		if err := dec.Decode(&run); err != nil {
+			return failures
 		}
-		if entry.Message != "report received" || entry.Status != "Failed" {
-			continue
-		}
-		for _, failure := range describeFailures(entry) {
-			if counts[failure] == 0 {
-				order = append(order, failure)
-			}
-			counts[failure]++
-		}
+		failures = append(failures, describeFailures(node, run)...)
 	}
-
-	var out strings.Builder
-	for _, failure := range order {
-		fmt.Fprintf(&out, "%s  (seen %d times)\n", failure, counts[failure])
-	}
-	return out.String()
 }
 
-// describeFailures renders one line per failed task in a single report.
-func describeFailures(entry ansibleReport) []string {
-	var run ansibleRun
-	if err := json.Unmarshal([]byte(entry.TaskLogs), &run); err != nil {
-		return nil
-	}
-
+// describeFailures renders one line per failed task in a single Ansible run.
+func describeFailures(node string, run ansibleRun) []string {
 	var failures []string
-
 	for _, play := range run.Plays {
 		for _, task := range play.Tasks {
 			for host, result := range task.Hosts {
 				if !result.Failed {
 					continue
 				}
-				failure := fmt.Sprintf("%s/%s: %s\n  msg: %s", entry.NodeID, host, task.Task.Name, result.Msg)
+				failure := fmt.Sprintf("%s/%s: %s\n  msg: %s", node, host, task.Task.Name, result.Msg)
 				if result.Stderr != "" {
 					failure += "\n  stderr: " + result.Stderr
 				}
@@ -260,6 +246,5 @@ func describeFailures(entry ansibleReport) []string {
 			}
 		}
 	}
-
 	return failures
 }

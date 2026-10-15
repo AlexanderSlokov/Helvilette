@@ -20,11 +20,17 @@ type Job struct {
 
 // NodeStatus represents the current state of a node regarding its last run playbook.
 // It is recorded by the agent locally before execution and reported after completion.
+//
+// Since ADR-0008 the standalone agent fills JobID with its own run ID, and the
+// file on disk is the record; Othela no longer receives it.
 type NodeStatus struct {
 	JobID     string    `json:"job_id"`
 	CommitSHA string    `json:"commit_sha"`
 	Status    string    `json:"status"` // e.g., "InProgress", "Success", "Failed"
 	AppliedAt time.Time `json:"applied_at"`
+	// Reason says why a run did not succeed, or why nothing ran, so the file
+	// answers "why" without the journal. Empty on success.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Report represents the execution report from an Agent.

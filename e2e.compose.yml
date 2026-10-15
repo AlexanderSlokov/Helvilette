@@ -112,8 +112,10 @@ services:
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - ./tests/images/node/agent-node-1.env:/etc/helvilette/agent.env:ro
+    # The agent pulls its repository straight from the git server; it does not
+    # need Othela (ADR-0008 D1). Othela stays in the stack, frozen, for its own specs.
     depends_on:
-      othela:
+      git-server:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "systemctl", "is-active", "--quiet", "helvilette-agent.service"]

@@ -1,5 +1,6 @@
-// Command agent is the Helvilette node agent. It polls Othela for work, runs the
-// Ansible playbook the job names, and reports the result back.
+// Command agent is the Helvilette node agent. It pulls one Git repository, reads
+// the helvilette.yml at its root, and runs the playbooks that select this node.
+// It needs no control plane (ADR-0008).
 package main
 
 import (
@@ -19,7 +20,8 @@ import (
 // is what lets a lower-precedence source win. See ADR-0001.
 type cliFlags struct {
 	configFile   string
-	othelaURL    string
+	repoURL      string
+	branch       string
 	nodeID       string
 	pollInterval string
 	workspaceDir string
@@ -41,7 +43,7 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "Helvilette Node Agent",
-		Long:  `The Node Agent runs on client machines, polls Othela for jobs, and executes Ansible playbooks.`,
+		Long:  `The Node Agent runs on each machine, pulls its playbook repository, and runs the playbooks helvilette.yml selects for this node.`,
 		Run: func(_ *cobra.Command, _ []string) {
 			runAgent(flags)
 		},
@@ -54,9 +56,10 @@ func newRootCmd() *cobra.Command {
 func registerFlags(cmd *cobra.Command, flags *cliFlags) {
 	f := cmd.Flags()
 	f.StringVar(&flags.configFile, "config", "", "Path to the YAML configuration file (e.g. /var/lib/helvilette/agent.yaml)")
-	f.StringVar(&flags.othelaURL, "othela-url", "", "URL of the Othela control plane")
+	f.StringVar(&flags.repoURL, "repo-url", "", "Git URL of the playbook repository this node pulls")
+	f.StringVar(&flags.branch, "branch", "", "Branch, tag or commit to check out (default: the remote's default branch)")
 	f.StringVar(&flags.nodeID, "node-id", "", "Unique identifier for this node")
-	f.StringVar(&flags.pollInterval, "poll-interval", "", "Interval between polls to Othela (e.g. 5s)")
+	f.StringVar(&flags.pollInterval, "poll-interval", "", "Interval between pulls of the repository (e.g. 30s)")
 	f.StringVar(&flags.workspaceDir, "workspace-dir", "", "Directory for storing agent workspace files")
 	f.StringVar(&flags.labels, "labels", "", "Comma-separated key=value labels (e.g. role=web,env=prod)")
 	f.BoolVar(&flags.printConfig, "print-config", false, "Print the resolved configuration and the source of each value, then exit")
@@ -64,8 +67,7 @@ func registerFlags(cmd *cobra.Command, flags *cliFlags) {
 
 // runAgent resolves the configuration and runs until the process is signalled.
 func runAgent(flags cliFlags) {
-	cfg, provenance, err := LoadConfig(flags.configFile, flags.othelaURL, flags.nodeID,
-		flags.pollInterval, flags.workspaceDir, flags.labels)
+	cfg, provenance, err := LoadConfig(flags)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load configuration")
 	}
@@ -78,6 +80,9 @@ func runAgent(flags cliFlags) {
 	}
 
 	logEffectiveConfig(cfg, provenance)
+	if err := requireRepoURL(cfg); err != nil {
+		log.Fatal().Err(err).Msg("agent not started")
+	}
 
 	ctx, cancel := signalledContext()
 	defer cancel()
@@ -88,7 +93,7 @@ func runAgent(flags cliFlags) {
 }
 
 // signalledContext returns a context cancelled on SIGINT or SIGTERM, so a
-// shutdown lands between polls rather than mid-playbook.
+// shutdown lands between cycles rather than mid-playbook.
 func signalledContext() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 

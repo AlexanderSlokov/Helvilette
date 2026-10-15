@@ -62,20 +62,27 @@ func playbookNames() ([]string, error) {
 	return names, nil
 }
 
-// registeredNodes returns the node IDs Othela has seen register.
-func registeredNodes() ([]string, error) {
-	var nodes []struct {
-		NodeID string `json:"node_id"`
-	}
-	if err := getJSON("/api/v1/nodes", &nodes); err != nil {
-		return nil, err
-	}
+// agentStatusPath is the agent's own record of its last run. Since ADR-0008 it
+// replaces the report Othela used to receive.
+const agentStatusPath = "/var/lib/helvilette/agent/last_run_summary.json"
 
-	ids := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		ids = append(ids, n.NodeID)
+// agentRunStatus is the part of last_run_summary.json the specs assert on.
+type agentRunStatus struct {
+	RunID     string `json:"job_id"`
+	CommitSHA string `json:"commit_sha"`
+	Status    string `json:"status"`
+	Reason    string `json:"reason"`
+}
+
+// lastRun reads a node's last_run_summary.json.
+func lastRun(node string) (agentRunStatus, error) {
+	var status agentRunStatus
+	out, err := execIn(node, "cat", agentStatusPath)
+	if err != nil {
+		return status, err
 	}
-	return ids, nil
+	err = json.Unmarshal([]byte(out), &status)
+	return status, err
 }
 
 var _ = Describe("Fleet sync", func() {
@@ -123,30 +130,44 @@ var _ = Describe("Fleet sync", func() {
 	})
 })
 
-var _ = Describe("Label-based dispatch", func() {
-	It("registers every agent", func() {
-		Eventually(registeredNodes, 90*time.Second, 3*time.Second).
-			Should(ConsistOf(agentNodes))
-	})
-
-	It("runs the playbook each agent's labels select", func() {
-		// node-1 carries role=edge-proxy and runs the nginx playbook, with
-		// extra_vars. The fleet's selectors are disjoint on purpose: a node
-		// matching two manifests receives only the first one scanned, which would
-		// make the outcome depend on walk order. See ADR-0004.
+// The agent pulls its own repository and needs no Othela (ADR-0008 D1). node-1
+// carries role=edge-proxy and pulls nginx-collection, whose root helvilette.yml
+// (v1alpha2, ADR-0009) selects the nginx playbook with extra_vars.
+var _ = Describe("Standalone agent", func() {
+	It("runs the playbook its labels select, from its own repository", func() {
 		for _, node := range agentNodes {
 			Eventually(func() (string, error) { return journal(node, "helvilette-agent") },
 				4*time.Minute, 5*time.Second).
 				Should(ContainSubstring(`"MESSAGE":"playbook execution succeeded"`),
 					node+" never ran a playbook to completion")
-		}
 
-		By("reporting execution back to Othela")
-		Eventually(func() (string, error) { return journal("othela", "helvilette-othela") },
-			4*time.Minute, 5*time.Second).
-			Should(ContainSubstring(`"MESSAGE":"report received"`))
+			Eventually(func() (agentRunStatus, error) { return lastRun(node) }, 4*time.Minute, 5*time.Second).
+				Should(HaveField("Status", "Success"), node+" did not record a successful run")
+		}
 	})
 
+	// The headline of ADR-0008: the MiG-21 still flies when the ground station
+	// is gone. Othela is stopped, a commit is pushed, and the agent runs it.
+	It("keeps pulling and running with Othela stopped", func() {
+		_, err := compose(time.Minute, "stop", "othela")
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() {
+			_, err := compose(3*time.Minute, "up", "--detach", "--wait", "othela")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		sha, err := seedCommit("nginx-collection", "NOTES.md", "pushed while Othela was stopped")
+		Expect(err).NotTo(HaveOccurred())
+
+		for _, node := range agentNodes {
+			Eventually(func() (agentRunStatus, error) { return lastRun(node) }, 4*time.Minute, 5*time.Second).
+				Should(And(HaveField("CommitSHA", sha), HaveField("Status", "Success")),
+					node+" did not run the commit pushed while Othela was down")
+		}
+	})
+})
+
+var _ = Describe("Othela, frozen", func() {
 	// ADR-0006 in the running stack: the loader must account for every path it
 	// declined, not only report a count. Issue #34 was filed because a count of
 	// zero arrived with nothing to act on.

@@ -1,5 +1,5 @@
-// Tests for executor.go: what the agent refuses to run, and where it puts the
-// files it hands to Ansible.
+// Tests for executor.go: the ansible-playbook arguments for each mode, where
+// the agent puts the files it hands to Ansible, and what it keeps afterwards.
 package main
 
 import (
@@ -8,109 +8,122 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"helvilette/pkg/manifest"
 )
 
-// agentWithWorkspace returns an agent whose workspace is a fresh temporary
-// directory, so no test touches the /var/lib default.
-func agentWithWorkspace(t *testing.T) *Agent {
-	t.Helper()
-	config := DefaultConfig()
-	config.WorkspaceDir = t.TempDir()
-	return NewAgent(config)
-}
-
-func TestAgent_ExecutePlaybook_RejectsEmptyJob(t *testing.T) {
-	agent := agentWithWorkspace(t)
-
-	status, output := agent.ExecutePlaybook(&Job{JobID: "test-empty-123"})
-	if status != "Failed" {
-		t.Errorf("expected status %q, got %q", "Failed", status)
-	}
-	if !strings.Contains(string(output), "neither repo_url nor playbook_path") {
-		t.Errorf("output %s does not say why the job was rejected", output)
+func runFor(mode manifest.ApplyMode, ansible manifest.AnsibleConfig) playbookRun {
+	return playbookRun{
+		runID: "r1", name: "web", file: "/ws/checkout/web.yml", workDir: "/ws/checkout",
+		mode: mode, group: manifest.NodeGroup{Name: "proxies", Ansible: ansible},
 	}
 }
 
-// Regression for issue #43: the workspace error must name the path and say how
-// to choose another, now that the default is not writable by a normal user.
-func TestAgent_ExecutePlaybook_ExplainsUnwritableWorkspace(t *testing.T) {
-	blocker := filepath.Join(t.TempDir(), "a-file")
-	if err := os.WriteFile(blocker, nil, 0644); err != nil {
+func TestAnsibleRunnerArgs_AutoAppliesDirectly(t *testing.T) {
+	args, err := ansibleRunner{workspaceDir: t.TempDir()}.args(runFor(manifest.ApplyAuto, manifest.AnsibleConfig{}))
+	if err != nil {
 		t.Fatal(err)
 	}
-	config := DefaultConfig()
-	config.WorkspaceDir = filepath.Join(blocker, "workspace")
-
-	status, output := NewAgent(config).ExecutePlaybook(&Job{JobID: "j1", PlaybookPath: "/srv/site.yml"})
-	if status != "Failed" {
-		t.Fatalf("expected status Failed, got %q", status)
+	if strings.Join(args, " ") != "-i localhost, -c local /ws/checkout/web.yml" {
+		t.Errorf("args = %v", args)
 	}
-	for _, want := range []string{config.WorkspaceDir, "--workspace-dir", "nothing was run"} {
-		if !strings.Contains(string(output), want) {
-			t.Errorf("output %s does not contain %q", output, want)
-		}
+}
+
+// ADR-0009 D4: plan changes nothing, so it runs as a check.
+func TestAnsibleRunnerArgs_PlanRunsAsCheck(t *testing.T) {
+	args, err := ansibleRunner{workspaceDir: t.TempDir()}.args(runFor(manifest.ApplyPlan, manifest.AnsibleConfig{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(args, " ") != "-i localhost, -c local /ws/checkout/web.yml --check --diff" {
+		t.Errorf("args = %v", args)
+	}
+}
+
+// ADR-0009 D5: vault-password-file is a path on the node, passed through.
+func TestAnsibleRunnerArgs_PassesVaultPasswordFile(t *testing.T) {
+	run := runFor(manifest.ApplyAuto, manifest.AnsibleConfig{VaultPasswordFile: "/etc/helvilette/vault-pass"})
+
+	args, err := ansibleRunner{workspaceDir: t.TempDir()}.args(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(args, " "), "--vault-password-file /etc/helvilette/vault-pass") {
+		t.Errorf("args = %v", args)
 	}
 }
 
 // Regression for issue #43: extra_vars were written into the Git checkout,
 // dirtying the tree EnsureRepo resets, and the write error was discarded.
-func TestAgent_AnsibleArgs_WritesExtraVarsInWorkspace(t *testing.T) {
-	agent := agentWithWorkspace(t)
-	checkout := filepath.Join(agent.config.WorkspaceDir, "repos", "site")
-	job := &Job{JobID: "j1", ExtraVars: map[string]string{"chrony_pool": "ntp.ubuntu.com"}}
+func TestAnsibleRunnerArgs_WritesExtraVarsInWorkspace(t *testing.T) {
+	runner := ansibleRunner{workspaceDir: t.TempDir()}
+	run := runFor(manifest.ApplyAuto, manifest.AnsibleConfig{ExtraVars: map[string]string{"nginx_http_port": "80"}})
 
-	args, err := agent.ansibleArgs(job, playbookTarget{file: filepath.Join(checkout, "site.yml"), workDir: checkout})
+	args, err := runner.args(run)
 	if err != nil {
-		t.Fatalf("ansibleArgs: %v", err)
+		t.Fatal(err)
 	}
 
-	want := filepath.Join(agent.config.WorkspaceDir, extraVarsFileName)
+	want := filepath.Join(runner.workspaceDir, extraVarsFileName)
 	if args[len(args)-1] != "@"+want {
 		t.Fatalf("last arg = %q, want %q", args[len(args)-1], "@"+want)
 	}
-	assertExtraVarsFile(t, want, job.ExtraVars)
+	assertFileMode(t, want, 0600)
+	assertJSONField(t, want, "nginx_http_port", "80")
 }
 
-func assertExtraVarsFile(t *testing.T, path string, want map[string]string) {
-	t.Helper()
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("extra_vars file: %v", err)
-	}
-	var got map[string]string
-	if err := json.Unmarshal(body, &got); err != nil || got["chrony_pool"] != want["chrony_pool"] {
-		t.Errorf("extra_vars file holds %s, want %v", body, want)
-	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0600 {
-		t.Errorf("extra_vars mode = %v, want 0600", info.Mode().Perm())
-	}
-}
+func TestAnsibleRunnerArgs_ReportsExtraVarsWriteFailure(t *testing.T) {
+	runner := ansibleRunner{workspaceDir: filepath.Join(t.TempDir(), "never-created")}
+	run := runFor(manifest.ApplyAuto, manifest.AnsibleConfig{ExtraVars: map[string]string{"k": "v"}})
 
-func TestAgent_AnsibleArgs_ReportsExtraVarsWriteFailure(t *testing.T) {
-	config := DefaultConfig()
-	config.WorkspaceDir = filepath.Join(t.TempDir(), "never-created")
-	job := &Job{JobID: "j1", ExtraVars: map[string]string{"k": "v"}}
-
-	if _, err := NewAgent(config).ansibleArgs(job, playbookTarget{file: "site.yml"}); err == nil {
+	if _, err := runner.args(run); err == nil {
 		t.Error("expected an error when extra_vars cannot be written")
 	}
 }
 
-func TestAgent_AnsibleArgs_OmitsExtraVarsWhenNone(t *testing.T) {
-	agent := agentWithWorkspace(t)
+// Without Ansible on PATH the run fails, and the reason is still saved where
+// the output would have been.
+func TestAnsibleRunnerRun_SavesWhyItDidNotRun(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	runner := ansibleRunner{workspaceDir: t.TempDir()}
 
-	args, err := agent.ansibleArgs(&Job{JobID: "j1"}, playbookTarget{file: "site.yml"})
-	if err != nil {
-		t.Fatalf("ansibleArgs: %v", err)
+	if runner.Run(runFor(manifest.ApplyAuto, manifest.AnsibleConfig{})) {
+		t.Fatal("Run succeeded without ansible-playbook on PATH")
 	}
-	if strings.Join(args, " ") != "-i localhost, -c local site.yml" {
-		t.Errorf("args = %v", args)
-	}
+
+	path := filepath.Join(runner.workspaceDir, "runs", "web.json")
+	assertFileMode(t, path, 0600)
+	assertJSONField(t, path, "error", "ansible-playbook executable not found in PATH")
 }
 
 func TestAsJSONOutput_WrapsNonJSON(t *testing.T) {
-	out := asJSONOutput("j1", []byte("ERROR! no playbook"))
+	out := asJSONOutput(runFor(manifest.ApplyAuto, manifest.AnsibleConfig{}), []byte("ERROR! no playbook"))
 	if !json.Valid(out) || !strings.Contains(string(out), "ERROR! no playbook") {
 		t.Errorf("output %s is not wrapped JSON carrying the raw text", out)
+	}
+}
+
+func assertFileMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != want {
+		t.Errorf("%s mode = %v, want %v", path, info.Mode().Perm(), want)
+	}
+}
+
+// assertJSONField checks that the JSON object in path has key, and that its
+// value contains want.
+func assertJSONField(t *testing.T, path, key, want string) {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]string
+	if err := json.Unmarshal(body, &doc); err != nil || !strings.Contains(doc[key], want) {
+		t.Errorf("%s holds %s, want %q containing %q", path, body, key, want)
 	}
 }

@@ -195,7 +195,7 @@ Probes.
 The Agent supports K8s-style configuration with the following priority: **CLI flags > YAML config > Environment variables > Defaults**.
 
 Note that the config file outranks environment variables, matching k3s. The file is an explicit,
-version-controlled artifact, so what you read there is what the agent runs — an ambient `OTHELA_URL`
+version-controlled artifact, so what you read there is what the agent runs — an ambient `REPO_URL`
 inherited from a systemd unit or container environment will not silently override it. See
 [ADR-0001](docs/informations/ADRs/ADR-0001.md) for the reasoning.
 
@@ -203,7 +203,8 @@ inherited from a systemd unit or container environment will not silently overrid
 
 ```bash
 ./bin/agent \
-  --othela-url=http://othela-server:8080/api/v1 \
+  --repo-url=https://git.example.com/org/playbooks.git \
+  --branch=main \
   --node-id=node-01 \
   --poll-interval=5s \
   --labels="role=edge-proxy,env=production"
@@ -212,7 +213,8 @@ inherited from a systemd unit or container environment will not silently overrid
 **Using environment variables:**
 
 ```bash
-export OTHELA_URL=http://othela-server:8080/api/v1
+export REPO_URL=https://git.example.com/org/playbooks.git
+export REPO_BRANCH=main
 export NODE_ID=node-01
 export POLL_INTERVAL=5s
 export AGENT_LABELS=role=edge-proxy,env=production
@@ -223,7 +225,8 @@ export AGENT_LABELS=role=edge-proxy,env=production
 
 ```yaml
 # /var/lib/helvilette/agent.yaml
-othelaURL: "http://othela-server:8080/api/v1"
+repoURL: "https://git.example.com/org/playbooks.git"
+branch: "main"          # optional; empty means the remote's default branch
 nodeID: "node-01"
 pollInterval: "5s"
 workspaceDir: "/var/lib/helvilette/workspace"
@@ -234,6 +237,10 @@ labels:
 
 Keys are matched exactly as written above. Unrecognised keys are rejected at startup rather
 than ignored, so a typo surfaces as an error instead of an agent silently running on defaults.
+`othelaURL`, `OTHELA_URL` and `--othela-url` were removed by
+[ADR-0008](docs/informations/ADRs/ADR-0008.md): the agent no longer talks to Othela, and a config
+that still sets them is rejected. `repoURL` is required; without it the agent refuses to start and
+says how to set it. An invalid `pollInterval` is an error from every source, naming the source.
 
 And then, start the agent with config file:
 
@@ -249,12 +256,13 @@ config file in CI:
 
 ```console
 $ ./bin/agent --config=/var/lib/helvilette/agent.yaml --print-config
-othelaURL    = http://othela-server:8080/api/v1  source=config-file
-nodeID       = node-01                           source=config-file
-pollInterval = 5s                                source=default
-workspaceDir = /var/lib/helvilette/workspace     source=config-file
-labels.owner = sre                               source=env(AGENT_LABELS)
-labels.role  = edge-proxy                        source=config-file
+repoURL      = https://git.example.com/org/playbooks.git  source=config-file
+branch       = main                                       source=config-file
+nodeID       = node-01                                    source=config-file
+pollInterval = 5s                                         source=default
+workspaceDir = /var/lib/helvilette/workspace              source=config-file
+labels.owner = sre                                        source=env(AGENT_LABELS)
+labels.role  = edge-proxy                                 source=config-file
 ```
 
 The agent logs the same information at startup under the message `effective configuration`, so a
@@ -270,12 +278,22 @@ and logs a warning, since any static default makes every affected node register 
 
 ### Expected Workflow
 
-1. **Agent** starts and registers with Othela (sends its `nodeId` + `labels`).
-2. **Agent** enters a polling loop, asking Othela for work at the configured interval.
-3. **Othela** matches the agent's labels against `nodeSelector` rules in `helvilette.yml` and returns a Job with a Git repo reference + `extra_vars`.
-4. **Agent** clones/pulls the playbook repository to its local workspace.
-5. **Agent** runs `ansible-playbook` with `ANSIBLE_STDOUT_CALLBACK=json` and any configured `extra_vars`.
-6. **Agent** captures the structured JSON output and reports the result back to Othela.
+Since [ADR-0008](docs/informations/ADRs/ADR-0008.md) the agent works alone, like `ansible-pull`.
+Every `pollInterval`:
+
+1. **Agent** pulls `repoURL` at `branch` into `<workspaceDir>/checkout`.
+2. If the commit already ran, whatever its result, it stops here until the next commit.
+3. **Agent** reads `helvilette.yml` (`v1alpha2`, [ADR-0009](docs/informations/ADRs/ADR-0009.md)) from
+   the repository root and selects every playbook with a `nodeGroup` matching its labels.
+4. **Agent** runs them in file order with `ansible-playbook`, passing the matched group's
+   `extra_vars` and `vault-password-file`. A playbook with `apply: auto` changes the machine; any
+   other playbook runs with `--check --diff` and changes nothing. The first failure stops the rest.
+5. **Agent** writes the outcome to `<workspaceDir>/last_run_summary.json`, and each playbook's
+   Ansible output to `<workspaceDir>/runs/<name>.json`. Nothing is sent anywhere.
+
+A run cut off by a crash or a power loss is marked `Failed (Interrupted)` at the next start, and the
+same commit runs again from the beginning. A repository without a root `helvilette.yml` runs
+nothing yet; the `ansible-pull`-style fallback to `<hostname>.yml` is the next step in the backlog.
 
 ## Development Setup
 
@@ -333,22 +351,18 @@ message naming the replacement. See
 
 #### Terminal 2: Helvilette Agent
 
-Start the agent. It will poll Othela every 5 seconds.
-You can use environment variables, CLI flags, or a config file (Kubelet style).
+Start the agent. It pulls its repository every 5 seconds and does not need Othela. `make
+run-agent` keeps its state in `.agent-workspace/`, because the default under `/var/lib` needs root.
 
 ```bash
-cd /mnt/e/Helvilette
-# Using CLI flags
-/usr/local/go/bin/go run ./cmd/agent --othela-url=http://localhost:8080/api/v1 --node-id=agent-local --poll-interval=5s
+REPO_URL=https://git.example.com/org/playbooks.git AGENT_LABELS=role=edge-proxy make run-agent
 ```
 
 ### Expected Behavior
-1. **Agent** connects to Othela.
-2. **Othela** sends a "Job" containing an Ansible Playbook (Prints "Hello Wunjo!").
-3. **Agent** saves this to its configured workspace directory.
-4. **Agent** runs `ansible-playbook -i "localhost," -c local` with `ANSIBLE_STDOUT_CALLBACK=json`.
-5. **Agent** captures the JSON output and sends it back to Othela.
-6. **Othela** prints the JSON report to the console.
+1. **Agent** pulls `REPO_URL` into `.agent-workspace/checkout`.
+2. **Agent** reads the root `helvilette.yml` and selects the playbooks matching `AGENT_LABELS`.
+3. **Agent** runs each with `ansible-playbook -i "localhost," -c local` and `ANSIBLE_STDOUT_CALLBACK=json`.
+4. **Agent** writes `.agent-workspace/last_run_summary.json` and `.agent-workspace/runs/<name>.json`.
 
 ### Method B: Automated E2E Testing with Ginkgo and Testcontainers (Recommended)
 

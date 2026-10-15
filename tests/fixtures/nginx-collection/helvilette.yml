@@ -1,0 +1,23 @@
+# The manifest the standalone agent reads from the root of this repository
+# (ADR-0009). node-1 pulls this repository directly; no Othela is involved.
+#
+# apply: auto makes the e2e run change the node for real. Without it the
+# playbook would only plan (--check --diff), which is the default.
+apiVersion: helvilette.naughtian.org/v1alpha2
+kind: PlaybookDeployment
+metadata:
+  name: edge-proxies
+  description: Install NGINX on edge proxy nodes
+spec:
+  playbooks:
+    - name: nginx
+      playbook: playbook.yml
+      apply: auto
+      nodeGroups:
+        - name: standard-proxies
+          nodeSelector:
+            role: edge-proxy
+          ansible:
+            extra_vars:
+              nginx_http_port: "80"
+              nginx_https_port: "443"

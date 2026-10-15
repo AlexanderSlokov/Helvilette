@@ -13,8 +13,9 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	config := DefaultConfig()
 
-	if config.OthelaURL != "http://localhost:8080/api/v1" {
-		t.Errorf("unexpected default OthelaURL: %s", config.OthelaURL)
+	// No default repository: an agent must be told what to pull (requireRepoURL).
+	if config.RepoURL != "" || config.Branch != "" {
+		t.Errorf("unexpected default RepoURL/Branch: %q/%q", config.RepoURL, config.Branch)
 	}
 
 	// The default is the hostname, so that nodes stay distinguishable when nodeID is
@@ -53,13 +54,14 @@ func TestParseLabels(t *testing.T) {
 }
 
 func TestLoadConfig_CLI_Overrides(t *testing.T) {
-	config, _, err := LoadConfig("", "http://cli:8080", "cli-node", "10s", "/tmp/cli", "role=db")
+	config, _, err := LoadConfig(cliFlags{repoURL: "git://cli/playbooks", branch: "release", nodeID: "cli-node",
+		pollInterval: "10s", workspaceDir: "/tmp/cli", labels: "role=db"})
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	if config.OthelaURL != "http://cli:8080/api/v1" {
-		t.Errorf("expected http://cli:8080/api/v1, got %s", config.OthelaURL)
+	if config.RepoURL != "git://cli/playbooks" || config.Branch != "release" {
+		t.Errorf("expected the CLI repository and branch, got %s at %s", config.RepoURL, config.Branch)
 	}
 	if config.NodeID != "cli-node" {
 		t.Errorf("expected cli-node, got %s", config.NodeID)
@@ -83,24 +85,24 @@ func writeConfigFile(t *testing.T, body string) string {
 // environment variables. See docs/informations/ADRs/ADR-0001.md.
 
 func TestLoadConfig_YAMLOverridesEnv(t *testing.T) {
-	t.Setenv("OTHELA_URL", "http://from-env:8080")
+	t.Setenv("REPO_URL", "git://from-env/playbooks")
 	t.Setenv("NODE_ID", "env-node")
 	t.Setenv("POLL_INTERVAL", "30s")
 	t.Setenv("WORKSPACE_DIR", "/tmp/env")
 
-	path := writeConfigFile(t, `othelaURL: "http://from-file:8080"
+	path := writeConfigFile(t, `repoURL: "git://from-file/playbooks"
 nodeID: "file-node"
 pollInterval: "7s"
 workspaceDir: "/tmp/file"
 `)
 
-	config, _, err := LoadConfig(path, "", "", "", "", "")
+	config, _, err := LoadConfig(cliFlags{configFile: path})
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	if config.OthelaURL != "http://from-file:8080/api/v1" {
-		t.Errorf("expected the config file to win, got %s", config.OthelaURL)
+	if config.RepoURL != "git://from-file/playbooks" {
+		t.Errorf("expected the config file to win, got %s", config.RepoURL)
 	}
 	if config.NodeID != "file-node" {
 		t.Errorf("expected file-node, got %s", config.NodeID)
@@ -119,16 +121,16 @@ func TestLoadConfig_EnvFillsGapsInYAML(t *testing.T) {
 	t.Setenv("NODE_ID", "env-node")
 	t.Setenv("POLL_INTERVAL", "30s")
 
-	path := writeConfigFile(t, `othelaURL: "http://from-file:8080"
+	path := writeConfigFile(t, `repoURL: "git://from-file/playbooks"
 `)
 
-	config, _, err := LoadConfig(path, "", "", "", "", "")
+	config, _, err := LoadConfig(cliFlags{configFile: path})
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	if config.OthelaURL != "http://from-file:8080/api/v1" {
-		t.Errorf("expected http://from-file:8080/api/v1, got %s", config.OthelaURL)
+	if config.RepoURL != "git://from-file/playbooks" {
+		t.Errorf("expected git://from-file/playbooks, got %s", config.RepoURL)
 	}
 	if config.NodeID != "env-node" {
 		t.Errorf("expected env-node to survive, got %s", config.NodeID)
@@ -141,20 +143,20 @@ func TestLoadConfig_EnvFillsGapsInYAML(t *testing.T) {
 // CLI flags stay the highest-priority source, above both the file and the environment.
 
 func TestLoadConfig_CLIOverridesYAMLAndEnv(t *testing.T) {
-	t.Setenv("OTHELA_URL", "http://from-env:8080")
+	t.Setenv("REPO_URL", "git://from-env/playbooks")
 	t.Setenv("NODE_ID", "env-node")
 
-	path := writeConfigFile(t, `othelaURL: "http://from-file:8080"
+	path := writeConfigFile(t, `repoURL: "git://from-file/playbooks"
 nodeID: "file-node"
 `)
 
-	config, _, err := LoadConfig(path, "http://from-cli:8080", "cli-node", "", "", "")
+	config, _, err := LoadConfig(cliFlags{configFile: path, repoURL: "git://from-cli/playbooks", nodeID: "cli-node"})
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	if config.OthelaURL != "http://from-cli:8080/api/v1" {
-		t.Errorf("expected the CLI flag to win, got %s", config.OthelaURL)
+	if config.RepoURL != "git://from-cli/playbooks" {
+		t.Errorf("expected the CLI flag to win, got %s", config.RepoURL)
 	}
 	if config.NodeID != "cli-node" {
 		t.Errorf("expected cli-node, got %s", config.NodeID)
@@ -172,7 +174,7 @@ func TestLoadConfig_LabelsMergePerKey(t *testing.T) {
   region: "us-east"
 `)
 
-	config, _, err := LoadConfig(path, "", "", "", "", "role=db")
+	config, _, err := LoadConfig(cliFlags{configFile: path, labels: "role=db"})
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -202,9 +204,41 @@ func TestLoadConfig_UnknownKeyIsRejected(t *testing.T) {
 nodeId: "node-01"
 `)
 
-	_, _, err := LoadConfig(path, "", "", "", "", "")
+	_, _, err := LoadConfig(cliFlags{configFile: path})
 	if err == nil {
 		t.Fatal("expected unknown config keys to be rejected, got no error")
+	}
+}
+
+// othelaURL was removed outright with no deprecation (issue #43): a config that
+// still sets it must fail rather than run on assumptions it no longer meets.
+func TestLoadConfig_RemovedOthelaURLIsRejected(t *testing.T) {
+	path := writeConfigFile(t, `othelaURL: "http://othela:8080/api/v1"
+`)
+
+	_, _, err := LoadConfig(cliFlags{configFile: path})
+	if err == nil || !strings.Contains(err.Error(), "othelaURL") {
+		t.Fatalf("expected an error naming othelaURL, got %v", err)
+	}
+}
+
+// A bad duration used to be ignored when it came from the environment or the
+// CLI, leaving the agent on the default without a word.
+func TestLoadConfig_BadPollIntervalNamesItsSource(t *testing.T) {
+	t.Setenv("POLL_INTERVAL", "often")
+
+	_, _, err := LoadConfig(cliFlags{})
+	if err == nil || !strings.Contains(err.Error(), "env(POLL_INTERVAL)") || !strings.Contains(err.Error(), `"often"`) {
+		t.Fatalf("expected an error naming env(POLL_INTERVAL) and the value, got %v", err)
+	}
+}
+
+func TestRequireRepoURL(t *testing.T) {
+	if err := requireRepoURL(AgentConfiguration{}); err == nil || !strings.Contains(err.Error(), "--repo-url") {
+		t.Errorf("expected an error saying how to set the repository, got %v", err)
+	}
+	if err := requireRepoURL(AgentConfiguration{RepoURL: "git://x/y"}); err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
@@ -212,7 +246,8 @@ nodeId: "node-01"
 // explain a node's behaviour from its logs alone.
 
 func TestLoadConfig_ProvenanceReportsWinningSource(t *testing.T) {
-	t.Setenv("OTHELA_URL", "http://from-env:8080")
+	t.Setenv("REPO_URL", "git://from-env/playbooks")
+	t.Setenv("REPO_BRANCH", "release")
 	t.Setenv("NODE_ID", "env-node")
 	t.Setenv("AGENT_LABELS", "owner=sre,region=eu-west")
 
@@ -223,13 +258,14 @@ labels:
   role: "edge-proxy"
 `)
 
-	_, provenance, err := LoadConfig(path, "", "", "", "", "role=db")
+	_, provenance, err := LoadConfig(cliFlags{configFile: path, labels: "role=db"})
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
 	want := map[string]string{
-		"othelaURL":     "env(OTHELA_URL)",   // only the environment set it
+		"repoURL":       "env(REPO_URL)",     // only the environment set it
+		"branch":        "env(REPO_BRANCH)",  // only the environment set it
 		"nodeID":        SourceConfigFile,    // file beat the environment
 		"workspaceDir":  SourceConfigFile,    // only the file set it
 		"pollInterval":  SourceDefault,       // nothing set it
@@ -253,7 +289,7 @@ func TestLoadConfig_ProvenanceDistinguishesHostnameDefault(t *testing.T) {
 		t.Skip("hostname unavailable on this machine")
 	}
 
-	config, provenance, err := LoadConfig("", "", "", "", "", "")
+	config, provenance, err := LoadConfig(cliFlags{})
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -268,14 +304,14 @@ func TestLoadConfig_ProvenanceDistinguishesHostnameDefault(t *testing.T) {
 
 func TestFormatConfig(t *testing.T) {
 	config := AgentConfiguration{
-		OthelaURL:    "http://othela:8080/api/v1",
+		RepoURL:      "git://git.example/playbooks",
 		NodeID:       "node-01",
 		PollInterval: 5 * time.Second,
 		WorkspaceDir: "/var/lib/helvilette/workspace",
 		Labels:       map[string]string{"role": "edge-proxy", "env": "production"},
 	}
 	provenance := ConfigProvenance{
-		"othelaURL":    SourceConfigFile,
+		"repoURL":      SourceConfigFile,
 		"nodeID":       sourceEnv("NODE_ID"),
 		"workspaceDir": SourceConfigFile,
 		"labels.role":  SourceConfigFile,
@@ -285,7 +321,7 @@ func TestFormatConfig(t *testing.T) {
 	out := FormatConfig(config, provenance)
 
 	for _, want := range []string{
-		"othelaURL    = http://othela:8080/api/v1",
+		"repoURL      = git://git.example/playbooks",
 		"source=config-file",
 		"nodeID       = node-01",
 		"source=env(NODE_ID)",
@@ -317,7 +353,7 @@ func TestLoadConfig_EmptyFileIsNotAnError(t *testing.T) {
 
 	path := writeConfigFile(t, "")
 
-	config, _, err := LoadConfig(path, "", "", "", "", "")
+	config, _, err := LoadConfig(cliFlags{configFile: path})
 	if err != nil {
 		t.Fatalf("expected an empty config file to be accepted, got: %v", err)
 	}

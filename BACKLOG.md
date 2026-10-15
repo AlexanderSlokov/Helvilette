@@ -30,57 +30,38 @@ of re-reading the history. Update this section at the end of every session.
 
 ### Last session (2026-10-15)
 
-- Doctrine and roadmap aligned with ADR-0008: daemon allowed for Helvilette,
-  probes section, SSH signing, immutable audit log free, Google SRE 70% figure
-  cited instead of the unsourced 80%.
-- First #43 fixes on branch `fix/43-agent-state-on-disk`, cut from
-  `docs/adr-0008-standalone-agent`. Workspace defaults to
-  `/var/lib/helvilette/agent`; state files written atomically
-  (`cmd/agent/statefile.go`); `extra_vars` moved out of the checkout;
-  `ExecutePlaybook` split.
-- e2e suite fixed for the one-node stack (`agentNodes`). `node-2` was scaled
-  down on purpose by the owner in `0e2e07c`. `make test` and `make e2e` pass,
-  10 of 10 specs.
-- ADR-0009 written: manifest `v1alpha2`, one root `helvilette.yml`, ordered
-  `spec.playbooks`, `apply` defaults to `plan`, K8s envelope kept, `probes`
-  reserved. Branch `docs/adr-0009-manifest-v1alpha2`, cut from
-  `fix/43-agent-state-on-disk`.
-- Doctrine reworded: it rejects copying Kubernetes' topology mechanically, not
-  its file format or its state-handling logic. Absorb selectively.
-- Manifest `v1alpha2` implemented in `pkg/manifest` with tests, on branch
-  `docs/adr-0009-manifest-v1alpha2`. Nothing calls it yet.
-  `ParseRepoManifest` returns `os.IsNotExist` unwrapped for the fallback;
-  `SelectPlaybooks` gives playbooks in file order with the first matching
-  group. The shared nodeGroup checks now take a field path, so v1alpha2
-  errors read `spec.playbooks[i].nodeGroups[j]`.
-- All branches pushed. No PR, by the owner's choice.
+- Doctrine and roadmap aligned with ADR-0008; Doctrine reworded to absorb
+  Kubernetes selectively (topology no, file format and state logic yes).
+- #43 items 2 and 6 fixed (workspace off `/tmp`, `extra_vars` out of the
+  checkout, atomic state writes). e2e fixed for the one-node stack.
+- ADR-0009 written and `v1alpha2` implemented in `pkg/manifest`.
+- #43 item 1 done on `feat/43-agent-reads-own-repo` (created with
+  `gh issue develop`): the agent pulls `repoURL` itself, reads the root
+  `helvilette.yml`, runs matching playbooks in order, and never talks to
+  Othela. `--othela-url` and friends removed. e2e passes 10 of 10, including
+  a spec that stops Othela and still sees a pushed commit run.
+- Branches stack: `docs/adr-0008-standalone-agent` → `fix/43-agent-state-on-disk`
+  → `docs/adr-0009-manifest-v1alpha2` → `feat/43-agent-reads-own-repo`. All
+  pushed, none merged, no PR by the owner's choice.
 
 ### Next
 
 Each step is one branch, created with `gh issue develop 43 --base <previous
-branch>` so it links to the issue, with tests and a green
-`make e2e` before moving on. All of them close items of #43.
+branch>` so it links to the issue, with tests and a green `make e2e` before
+moving on.
 
-1. Agent reads its own repository. `agent.yaml` gains `repoURL` and `branch`
-   (ADR-0001 layering, flags and env included). `--othela-url`, `OTHELA_URL`,
-   `othelaURL`, `RegisterNode`, `Poll` and `SendReport` are deleted outright.
-   Each cycle: `git.EnsureRepo`, then `manifest.ParseRepoManifest` on the root
-   `helvilette.yml`, then `manifest.SelectPlaybooks` with the node's labels,
-   then run each selection in order, stopping at the first failure
-   (ADR-0009 D6). No match: one log line, nothing run (D9).
-2. Same branch: e2e follows. Give `nginx-collection` a root `helvilette.yml`
-   in `v1alpha2`; point `node-1` at it through `agent.env`; drop the agent's
-   `depends_on: othela`; rewrite the dispatch specs in
-   `tests/e2e/gitops_test.go` to assert on the agent's own journal and
-   `last_run_summary.json`. Othela specs stay as long as the service does.
-3. Fallback without `helvilette.yml`: `<fqdn>.yml`, `<hostname>.yml`,
-   `local.yml`, plan mode (ADR-0009 D7).
-4. Check before apply: `--check --diff` always first; `apply: auto` applies
-   only after a passing check; `plan` stops there (ADR-0008 D9,
-   ADR-0009 D4). The record says which mode ran.
-5. SSH commit signing with at least two allowed signers (ADR-0008 D9).
-6. Pinned Ansible and the compatibility matrix (ADR-0008 D6). Needs a short
-   design talk with the owner: how it is packaged (venv, tarball, image).
+1. Check before apply (#43 item 3): `apply: auto` runs `--check --diff`
+   first and applies only if it passes; `plan` already stops at the check.
+   The record says which mode ran (ADR-0008 D9, ADR-0009 D4). Today `auto`
+   applies directly: see `ansibleRunner.args` in `cmd/agent/executor.go`.
+2. Fallback without `helvilette.yml`: `<fqdn>.yml`, `<hostname>.yml`,
+   `local.yml`, plan mode (ADR-0009 D7). The hook is the `os.IsNotExist`
+   branch in `Agent.selectPlaybooks`, `cmd/agent/cycle.go`.
+3. SSH commit signing with at least two allowed signers (#43 item 4,
+   ADR-0008 D9). Adds `allowedSigners` to `configSettings`.
+4. Pinned Ansible and the compatibility matrix (#43 item 5, ADR-0008 D6).
+   Needs a short design talk with the owner first: venv, tarball or image.
+5. Mark Othela as frozen in `cmd/othela` help text and package docs.
 
 ### Waiting on the owner
 
@@ -99,9 +80,9 @@ the record), with Othela stopped.
 - [ ] Mark Othela as frozen in its package docs and in `cmd/othela/main.go`
       help text. No new features land there until Phase 3.
 - [ ] Fix the Law 0 violations in issue #43:
-  - [ ] Remove `RegisterNode`, `Poll` and `SendReport` from the agent's run
+  - [x] Remove `RegisterNode`, `Poll` and `SendReport` from the agent's run
         path. The agent reads `helvilette.yml` from its own checkout.
-  - [ ] Remove `--othela-url`, `OTHELA_URL` and `othelaURL` outright, with no
+  - [x] Remove `--othela-url`, `OTHELA_URL` and `othelaURL` outright, with no
         deprecation period: nobody uses them yet. No "standalone" flag either;
         standalone is the only mode (ADR-0008 D1). Update the README agent
         config table, `helvilette-agent.service`, and drop the agent node's
@@ -110,10 +91,12 @@ the record), with Othela stopped.
   - [ ] Run `--check --diff` before every apply.
   - [x] Write `extra_vars` outside the checkout, atomically, and return the
         error. `last_run_summary.json` is written atomically too.
-- [ ] Repo URL, branch and signing keys go in `agent.yaml`, layered as in
-      ADR-0001, like `ansible-pull -U -C`. (ADR-0008 D2)
-- [ ] Playbook selection: `helvilette.yml` when present, otherwise
-      `<fqdn>.yml`, `<hostname>.yml`, `local.yml`. (ADR-0008 D2, was 3.14)
+- [x] Repo URL and branch go in `agent.yaml`, layered as in ADR-0001, like
+      `ansible-pull -U -C`. (ADR-0008 D2)
+- [ ] Signing keys (`allowedSigners`) in `agent.yaml`. (ADR-0008 D9)
+- [x] Playbook selection from the root `helvilette.yml`. (ADR-0008 D2)
+- [ ] Fallback without it: `<fqdn>.yml`, `<hostname>.yml`, `local.yml`, plan
+      mode. (ADR-0009 D7, was 3.14)
 - [x] ADR for the manifest schema after `spec.repo` loses its role:
       ADR-0009, `v1alpha2`. (ADR-0008 D3)
 - [x] Implement `v1alpha2` in `pkg/manifest` alongside `v1alpha1`, which
@@ -122,11 +105,12 @@ the record), with Othela stopped.
       `plan`, paths confined to the repository, `probes` rejected as not yet
       supported, removed fields rejected with a pointer to what replaced them.
       (ADR-0009)
-- [ ] Rewrite the e2e fixtures to a root `helvilette.yml` in each playbook
-      repository. (ADR-0009)
-- [ ] Inventory the tests. Mark which Ginkgo and Testcontainers specs exercise
-      the agent alone and which need Othela. Rewrite
-      `tests/e2e/gitops_test.go` for the standalone agent.
+- [x] Rewrite the e2e fixtures to a root `helvilette.yml` in each playbook
+      repository. Done for `nginx-collection`; `baseline` has no node since
+      `node-2` was scaled down. (ADR-0009)
+- [x] Rewrite `tests/e2e/gitops_test.go` for the standalone agent, including
+      a spec that runs a commit with Othela stopped. The remaining Othela
+      specs are grouped under "Othela, frozen".
 
 ### Scout ansible-pull
 
