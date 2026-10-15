@@ -50,6 +50,23 @@ require to update documentation for Helvilette.
 - Early returns over nested ifs. Max 2 levels of indentation.
 - Exception messages must include the offending value and expected shape.
 
+### Documentation and comments are docs-as-code
+
+Every document, artifact and code comment in this repository will be read: by
+maintainers, by the owner, by other AI agents. Before writing one, ask: how do
+I explain this here so the reader does not have to dig through other documents?
+Write as if you were maintaining the Kubernetes documentation.
+
+- Give the essential context in place: what the thing is, why it exists, and
+  what happens at its edges. A link adds depth; it never replaces the
+  explanation.
+- Define a project term the first time it appears in a document (for example
+  "run record", "plan mode", "Othela"), or link to where it is defined.
+- Name the exact value, field, file or command. Avoid "the config" or "this
+  setting".
+- Keep the document true. When the code changes, update every document that
+  describes it in the same change.
+
 ### Comments
 
 - Keep your own comments. Don't strip them on refactor — they carry
