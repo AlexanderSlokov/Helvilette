@@ -124,17 +124,17 @@ var _ = Describe("Fleet sync", func() {
 })
 
 var _ = Describe("Label-based dispatch", func() {
-	It("registers both agents", func() {
+	It("registers every agent", func() {
 		Eventually(registeredNodes, 90*time.Second, 3*time.Second).
-			Should(ConsistOf("node-1", "node-2"))
+			Should(ConsistOf(agentNodes))
 	})
 
-	It("runs the edge-proxy playbook on node-1 and the baseline playbook on node-2", func() {
-		// node-1 carries role=edge-proxy and node-2 role=baseline. The selectors
-		// are disjoint on purpose: a node matching two manifests receives only the
-		// first one scanned, which would make the outcome depend on walk order.
-		// See ADR-0004.
-		for _, node := range []string{"node-1", "node-2"} {
+	It("runs the playbook each agent's labels select", func() {
+		// node-1 carries role=edge-proxy and runs the nginx playbook, with
+		// extra_vars. The fleet's selectors are disjoint on purpose: a node
+		// matching two manifests receives only the first one scanned, which would
+		// make the outcome depend on walk order. See ADR-0004.
+		for _, node := range agentNodes {
 			Eventually(func() (string, error) { return journal(node, "helvilette-agent") },
 				4*time.Minute, 5*time.Second).
 				Should(ContainSubstring(`"MESSAGE":"playbook execution succeeded"`),
@@ -166,11 +166,11 @@ var _ = Describe("Units and journald", func() {
 	// foreground-process container cannot exercise either this or the journal.
 	// See ADR-0007 R2.
 	It("runs Othela and the agents as active systemd units", func() {
-		for service, unit := range map[string]string{
-			"othela": "helvilette-othela.service",
-			"node-1": "helvilette-agent.service",
-			"node-2": "helvilette-agent.service",
-		} {
+		units := map[string]string{"othela": "helvilette-othela.service"}
+		for _, node := range agentNodes {
+			units[node] = "helvilette-agent.service"
+		}
+		for service, unit := range units {
 			out, err := execIn(service, "systemctl", "is-active", unit)
 			Expect(err).NotTo(HaveOccurred(), service+": "+out)
 			Expect(strings.TrimSpace(out)).To(ContainSubstring("active"))
@@ -200,7 +200,6 @@ var _ = Describe("Units and journald", func() {
 			service, field, value string
 		}{
 			{"node-1", "NODE_ID", "node-1"},
-			{"node-2", "NODE_ID", "node-2"},
 			{"othela", "COMPONENT", "othela"},
 			{"othela", "COMPONENT", "playbook-loader"},
 		}

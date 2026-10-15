@@ -398,7 +398,11 @@ disagree. See [ADR-0007](docs/informations/ADRs/ADR-0007.md).
 | `git-server` | `git daemon` serving three repositories committed into the image at build time: `fleet` (the manifests Othela reads), `nginx-collection` and `baseline` (the playbooks agents run) |
 | `othela` | Ubuntu 24.04 with systemd as PID 1, running `helvilette-othela.service` |
 | `node-1` | Agent node labelled `role=edge-proxy` |
-| `node-2` | Agent node labelled `role=baseline` |
+
+The stack runs one agent node. A second node (`node-2`, `role=baseline`) was scaled down on
+purpose to save resources until Othela coordinates several nodes again, so the `baseline`
+repository is served but no node runs it. To bring it back, re-add the service and list it in
+`agentNodes` in `tests/e2e/compose_test.go`.
 
 The nodes run systemd rather than a foreground process, because managing systemd units is
 what Helvilette does. A container that cannot run `systemctl` cannot exercise it.

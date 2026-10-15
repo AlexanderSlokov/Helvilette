@@ -16,6 +16,12 @@ import (
 // by hand. Issue #33 is what that looks like when it fails. See ADR-0007.
 const composeFile = "e2e.compose.yml"
 
+// agentNodes is every agent service in composeFile. node-2 (role=baseline) was
+// scaled down on purpose in 0e2e07c to save resources until Othela coordinates
+// several nodes again; see ADR-0008 D8. Bringing it back means re-adding the
+// service and its name here, and every spec that loops over agents follows.
+var agentNodes = []string{"node-1"}
+
 // upTimeout bounds `docker compose up --wait`. Generous because a cold run
 // compiles both binaries and pulls three base images.
 const upTimeout = 12 * time.Minute
@@ -146,7 +152,7 @@ func diagnose() string {
 		}
 	}
 
-	for _, service := range []string{"othela", "node-1", "node-2"} {
+	for _, service := range append([]string{"othela"}, agentNodes...) {
 		report.WriteString("--- journal " + service + " (last " + journalTail + ") ---\n")
 		report.WriteString(journalOf(service))
 	}
