@@ -73,6 +73,8 @@ Bài học là kỹ thuật Liên Xô không loại bỏ độ phức tạp. Nó
 
 Ý tưởng ban đầu của white paper này ép mọi phần mềm hạ tầng phải mang các đặc tính của một khẩu AK. Đó là một sai lầm cần được thừa nhận như một phần của white paper. Ép mọi thứ thành AK vì ngưỡng mộ AK là duy ý chí: lấy hình dạng của cỗ máy mình thích thay cho hình dạng của nhiệm vụ. Nhưng biện chứng cần được thực hiện hai chiều. Xây cả một hệ thống S-75 khi chưa thấy máy bay địch cũng là duy ý chí. Liên Xô xây S-75 vì máy bay do thám và máy bay ném bom là có thật. Câu hỏi đúng phải là: **mối**** v****ấn ****đ****ề ****c****ốt l****õi**** ****nằm ở đâu, và là của ai?**
 
+Từ đó suy ra cách đối xử với những cỗ máy mình ngưỡng mộ: tiếp thu có chọn lọc, không sao chép nguyên khối. Học thuyết không bắt phải từ bỏ một thiết kế tốt chỉ vì từng bắt chước nó sai cách. Người thiết kế có quyền chọn hấp thu bộ phận nào, và vận dụng học thuyết một cách sáng tạo vào hoàn cảnh cụ thể của mình.
+
 ## 3. Hình mẫu sai lầm
 
 ### 3.1. Bảng điều khiển chiếm quyền máy chủ
@@ -168,7 +170,7 @@ Kallisto mới là **bản thiết kế** đạt chuẩn. Để thành vũ khí 
 
 ### 5.2. Helvilette: từ HK416 về MiG-21
 
-Helvilette đưa playbook Ansible về chạy ngay trên từng máy theo kiểu kéo, để người vận hành không phải giữ một rổ khoá SSH. Phiên bản đầu sao chép hình dạng của Kubernetes: một control plane (Othela), agent trên mỗi máy, SQLite làm kho trạng thái. Kết quả là một khẩu HK416: chính xác nhưng khó làm và cồng kềnh, đến mức tác giả không dám chạy nó ở homelab của mình.
+Helvilette đưa playbook Ansible về chạy ngay trên từng máy theo kiểu kéo, để người vận hành không phải giữ một rổ khoá SSH. Phiên bản đầu sao chép hình dạng của Kubernetes: một control plane (Othela), agent trên mỗi máy, SQLite làm kho trạng thái. Kết quả là một khẩu HK416: chính xác nhưng khó làm và cồng kềnh, đến mức tác giả không dám chạy nó ở homelab của mình. Cái sai không nằm ở việc học Kubernetes, mà ở việc bắt chước máy móc topology của nó (control plane, agent, kho trạng thái), làm mọi thứ phức tạp thêm mà nhiệm vụ không đòi hỏi. Những bộ phận khác của Kubernetes vẫn được tiếp thu: định dạng file khai báo (`apiVersion`, `kind`, `metadata`, `spec`, `nodeSelector`) vì đó là ngôn ngữ chung của hệ sinh thái (nguyên lý 4), và một số logic xử lý trạng thái phức tạp như vòng lặp đối soát hay probe.
 
 Phân tích theo học thuyết:
 
@@ -237,7 +239,7 @@ Ba ca thực chiến cho thấy học thuyết vừa dùng để đánh giá, v�
 
 | Hình ảnh cơ khí | Nguyên lý | Ví dụ trong Naughtian |
 | --- | --- | --- |
-| Phương pháp của phòng thiết kế | Nhiệm vụ trước, hình dạng sau | Helvilette bỏ hình dạng sao chép Kubernetes |
+| Phương pháp của phòng thiết kế | Nhiệm vụ trước, hình dạng sau | Helvilette không bắt chước máy móc topology của Kubernetes, nhưng vẫn tiếp thu định dạng khai báo và logic xử lý trạng thái |
 | MiG-21 và radar mặt đất | Đặt độ phức tạp vào chỗ bảo trì được; máy bay vẫn bay khi mất liên lạc | Agent độc lập, Othela tuỳ chọn |
 | Khoá nòng xoay | Mượn cơ cấu đã được chứng minh | `ansible-pull`, `arc-swap`, mô hình Borg trong Kalena |
 | Băng đạn lắp lẫn | Giao diện chuẩn và bền nhất | API KV v2 của Kallisto; biên bản có số phiên bản của Helvilette |

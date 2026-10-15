@@ -41,16 +41,19 @@ of re-reading the history. Update this section at the end of every session.
 - e2e suite fixed for the one-node stack (`agentNodes`). `node-2` was scaled
   down on purpose by the owner in `0e2e07c`. `make test` and `make e2e` pass,
   10 of 10 specs.
-- Both branches pushed. No PR, by the owner's choice.
+- ADR-0009 written: manifest `v1alpha2`, one root `helvilette.yml`, ordered
+  `spec.playbooks`, `apply` defaults to `plan`, K8s envelope kept, `probes`
+  reserved. Branch `docs/adr-0009-manifest-v1alpha2`, cut from
+  `fix/43-agent-state-on-disk`.
+- Doctrine reworded: it rejects copying Kubernetes' topology mechanically, not
+  its file format or its state-handling logic. Absorb selectively.
+- All branches pushed. No PR, by the owner's choice.
 
 ### Next
 
-1. Write ADR-0009: the manifest schema once `spec.repo` retires (ADR-0008 D3).
-   Minimum scope: label to playbook mapping, auto-apply or plan only per
-   playbook, the fallback to `<fqdn>.yml`, `<hostname>.yml`, `local.yml`.
-   Leave `probes` as a reserved key; its design comes later. Ask the owner
-   short questions; it is a design decision.
-2. Then the larger #43 items, on a branch from `fix/43-agent-state-on-disk`:
+1. Implement manifest `v1alpha2` in `pkg/manifest` (ADR-0009), with tests. It
+   is pure parsing and validation, so it can land before the agent uses it.
+2. Then the larger #43 items, on a branch from `docs/adr-0009-manifest-v1alpha2`:
    repo URL, branch and allowed signers in `agent.yaml`; the agent reads
    `helvilette.yml` from its own checkout; the Othela client and
    `--othela-url` leave the agent entirely (decided 2026-10-15, no
@@ -91,8 +94,15 @@ the record), with Othela stopped.
       ADR-0001, like `ansible-pull -U -C`. (ADR-0008 D2)
 - [ ] Playbook selection: `helvilette.yml` when present, otherwise
       `<fqdn>.yml`, `<hostname>.yml`, `local.yml`. (ADR-0008 D2, was 3.14)
-- [ ] ADR for the manifest schema after `spec.repo` loses its role. File name
-      stays `helvilette.yml`. (ADR-0008 D3)
+- [x] ADR for the manifest schema after `spec.repo` loses its role:
+      ADR-0009, `v1alpha2`. (ADR-0008 D3)
+- [ ] Implement `v1alpha2` in `pkg/manifest` alongside `v1alpha1`, which
+      Othela keeps reading. `spec.playbooks` list, `apply` defaulting to
+      `plan`, paths confined to the repository, `probes` rejected as not yet
+      supported, removed fields rejected with a pointer to what replaced them.
+      (ADR-0009)
+- [ ] Rewrite the e2e fixtures to a root `helvilette.yml` in each playbook
+      repository. (ADR-0009)
 - [ ] Inventory the tests. Mark which Ginkgo and Testcontainers specs exercise
       the agent alone and which need Othela. Rewrite
       `tests/e2e/gitops_test.go` for the standalone agent.

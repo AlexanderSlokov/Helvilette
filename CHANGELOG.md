@@ -72,6 +72,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   20-line limit in AGENTS.md. Behaviour is unchanged apart from the three items
   above.
 
+* **Manifest `v1alpha2` is decided**, not yet implemented.
+  [ADR-0009](docs/informations/ADRs/ADR-0009.md):
+  - one `helvilette.yml` at the repository root;
+  - an ordered `spec.playbooks` list, each with `apply: auto | plan`, defaulting
+    to `plan`;
+  - `nodeGroups` kept per playbook;
+  - `spec.repo`, `spec.branch`, `spec.vault` and `metadata.namespace` removed;
+  - `probes` reserved.
+
+  The Kubernetes envelope stays. The design doctrine is reworded to say what it
+  meant: do not copy Kubernetes' topology mechanically; its file format and
+  state-handling logic may still be absorbed.
+
 * **Direction: the agent stands alone, and Othela is frozen.**
   [ADR-0008](docs/informations/ADRs/ADR-0008.md) records the decision. It
   follows the design doctrine and the roadmap written on 2026-10-11 under
