@@ -32,17 +32,21 @@ of re-reading the history. Update this section at the end of every session.
 
 - Doctrine and roadmap aligned with ADR-0008; Doctrine reworded to absorb
   Kubernetes selectively (topology no, file format and state logic yes).
-- #43 items 2 and 6 fixed (workspace off `/tmp`, `extra_vars` out of the
-  checkout, atomic state writes). e2e fixed for the one-node stack.
-- ADR-0009 written and `v1alpha2` implemented in `pkg/manifest`.
-- #43 item 1 done on `feat/43-agent-reads-own-repo` (created with
-  `gh issue develop`): the agent pulls `repoURL` itself, reads the root
-  `helvilette.yml`, runs matching playbooks in order, and never talks to
-  Othela. `--othela-url` and friends removed. e2e passes 10 of 10, including
-  a spec that stops Othela and still sees a pushed commit run.
-- Branches stack: `docs/adr-0008-standalone-agent` → `fix/43-agent-state-on-disk`
-  → `docs/adr-0009-manifest-v1alpha2` → `feat/43-agent-reads-own-repo`. All
-  pushed, none merged, no PR by the owner's choice.
+- #43 items 1, 2 and 6 done; ADR-0009 written and `v1alpha2` implemented.
+  The agent pulls `repoURL` itself, reads the root `helvilette.yml`, runs
+  matching playbooks in order, and never talks to Othela.
+- `pkg/git` now clones again when the requested URL differs from the
+  checkout's.
+- Comments and operator messages rewritten after the owner's review: no
+  ADR, issue or BACKLOG references; reasons stated in place. Rule recorded
+  in AGENTS.md. Old code still to sweep: see "Open technical debt".
+- Verified by hand on the e2e stack, with Othela stopped: first run applied
+  nginx; a pushed commit ran about 2 s later; `kill -9` mid-run was detected
+  after systemd's restart and the commit ran again to Success.
+- Branches stack, each pushed, none merged, no PR by the owner's choice:
+  `docs/adr-0008-standalone-agent` → `fix/43-agent-state-on-disk` →
+  `docs/adr-0009-manifest-v1alpha2` → `feat/43-agent-reads-own-repo`.
+  The last was created with `gh issue develop 43` and is linked to #43.
 
 ### Next
 
@@ -50,24 +54,34 @@ Each step is one branch, created with `gh issue develop 43 --base <previous
 branch>` so it links to the issue, with tests and a green `make e2e` before
 moving on.
 
-1. Check before apply (#43 item 3): `apply: auto` runs `--check --diff`
+1. Ask the owner what the `ansible-pull` scouting found. It may change the
+   order below, or answer whether the agent calls `ansible-pull` itself.
+2. Check before apply (#43 item 3): `apply: auto` runs `--check --diff`
    first and applies only if it passes; `plan` already stops at the check.
-   The record says which mode ran (ADR-0008 D9, ADR-0009 D4). Today `auto`
-   applies directly: see `ansibleRunner.args` in `cmd/agent/executor.go`.
-2. Fallback without `helvilette.yml`: `<fqdn>.yml`, `<hostname>.yml`,
-   `local.yml`, plan mode (ADR-0009 D7). The hook is the `os.IsNotExist`
-   branch in `Agent.selectPlaybooks`, `cmd/agent/cycle.go`.
-3. SSH commit signing with at least two allowed signers (#43 item 4,
-   ADR-0008 D9). Adds `allowedSigners` to `configSettings`.
-4. Pinned Ansible and the compatibility matrix (#43 item 5, ADR-0008 D6).
-   Needs a short design talk with the owner first: venv, tarball or image.
-5. Mark Othela as frozen in `cmd/othela` help text and package docs.
+   The record says which mode ran. Today `auto` applies directly, in
+   `ansibleRunner.args`, `cmd/agent/executor.go`.
+3. Small fixes seen in the manual run:
+   - `pkg/git` logs "fleet cache cloned", wording from when only Othela used
+     it. Say "repository cloned".
+   - A re-run after an interruption overwrites `last_run_summary.json`, so
+     the `Failed (Interrupted)` record survives only in the journal. Keep it,
+     for example as a field on the next record, until the run record format
+     v1 exists.
+4. Fallback without `helvilette.yml`: `<fqdn>.yml`, `<hostname>.yml`,
+   `local.yml`, plan mode. The hook is the `os.IsNotExist` branch in
+   `Agent.selectPlaybooks`, `cmd/agent/cycle.go`.
+5. SSH commit signing with at least two allowed signers (#43 item 4). Adds
+   `allowedSigners` to `configSettings`.
+6. Pinned Ansible and the compatibility matrix (#43 item 5). Needs a short
+   design talk with the owner first: venv, tarball or image.
+7. Mark Othela as frozen in `cmd/othela` help text and package docs.
 
 ### Waiting on the owner
 
-- The `ansible-pull` scouting (Phase 0) runs on the owner's VMs for at least a
-  week. Its result closes the open question in ADR-0008 D2. Do not claim
-  advantages over `ansible-pull` beyond the three in D2 until then.
+- The `ansible-pull` scouting (Phase 0), started 2026-10-15 on the owner's
+  machines. Its result closes the open question about the agent's engine.
+  Do not claim advantages over `ansible-pull` beyond probes with
+  remediation, on-disk run records, and halt with a reason until then.
 
 ---
 
