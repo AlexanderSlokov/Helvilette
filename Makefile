@@ -50,13 +50,17 @@ run-othela:
 run-othela-prod:
 	go run ./cmd/othela
 
+# The agent's default workspace is /var/lib/helvilette/agent (issue #43), which a
+# non-root developer cannot write, so local runs keep their state in the repo.
+AGENT_DEV_WORKSPACE ?= $(CURDIR)/.agent-workspace
+
 # Run Agent (dev mode with human-readable logs)
 run-agent:
-	HELVILETTE_DEV=1 go run ./cmd/agent
+	HELVILETTE_DEV=1 go run ./cmd/agent --workspace-dir=$(AGENT_DEV_WORKSPACE)
 
 # Run Agent (production mode with JSON logs)
 run-agent-prod:
-	go run ./cmd/agent
+	go run ./cmd/agent --workspace-dir=$(AGENT_DEV_WORKSPACE)
 
 # Docker Compose Targets
 #
@@ -94,6 +98,7 @@ e2e:
 clean:
 	rm -rf bin/
 	rm -f coverage.out coverage.html
+	rm -rf .agent-workspace
 
 # Remove anything a stack left behind.
 #

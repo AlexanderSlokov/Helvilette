@@ -145,7 +145,9 @@ func (a *Agent) writeStatus(status types.NodeStatus) error {
 	if err := os.MkdirAll(a.config.WorkspaceDir, 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(a.statusFilePath(), data, 0644)
+	// Atomic, because this file is what detects an interrupted run after a
+	// crash; a crash while writing it must not destroy it. Issue #43.
+	return writeFileAtomic(a.statusFilePath(), data, 0644)
 }
 
 // SendReport sends an execution report to Othela

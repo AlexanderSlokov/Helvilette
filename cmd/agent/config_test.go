@@ -31,6 +31,12 @@ func TestDefaultConfig(t *testing.T) {
 	if config.PollInterval.Seconds() != 5 {
 		t.Errorf("unexpected default PollInterval: %v", config.PollInterval)
 	}
+
+	// Regression for issue #43: /tmp may be wiped on reboot, taking the record of
+	// an interrupted run with it.
+	if config.WorkspaceDir != "/var/lib/helvilette/agent" {
+		t.Errorf("unexpected default WorkspaceDir: %s", config.WorkspaceDir)
+	}
 }
 
 func TestParseLabels(t *testing.T) {

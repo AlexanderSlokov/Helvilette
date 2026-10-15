@@ -44,3 +44,6 @@ go.work.sum
 # Binaries built at the repo root by `go build ./cmd/...` without -o
 /othela
 /agent
+
+# Local agent state from `make run-agent`
+/.agent-workspace

@@ -66,6 +66,11 @@ func defaultNodeID() (id string, fromHostname bool) {
 	return fallbackNodeID, false
 }
 
+// defaultWorkspaceDir matches StateDirectory=helvilette/agent in the unit. It was
+// /tmp/helvilette, which a reboot may wipe together with last_run_summary.json,
+// so a power cut mid-apply left no trace of the interrupted run. Issue #43.
+const defaultWorkspaceDir = "/var/lib/helvilette/agent"
+
 // DefaultConfig returns the default agent configuration
 func DefaultConfig() AgentConfiguration {
 	nodeID, _ := defaultNodeID()
@@ -73,7 +78,7 @@ func DefaultConfig() AgentConfiguration {
 		OthelaURL:    "http://localhost:8080/api/v1",
 		NodeID:       nodeID,
 		PollInterval: 5 * time.Second,
-		WorkspaceDir: "/tmp/helvilette",
+		WorkspaceDir: defaultWorkspaceDir,
 		Labels:       make(map[string]string),
 	}
 }
