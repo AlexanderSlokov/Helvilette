@@ -72,7 +72,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   20-line limit in AGENTS.md. Behaviour is unchanged apart from the three items
   above.
 
-* **Manifest `v1alpha2` is decided**, not yet implemented.
+* **Manifest `v1alpha2` is decided and parsed**; the agent does not use it yet.
   [ADR-0009](docs/informations/ADRs/ADR-0009.md):
   - one `helvilette.yml` at the repository root;
   - an ordered `spec.playbooks` list, each with `apply: auto | plan`, defaulting
@@ -80,6 +80,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `nodeGroups` kept per playbook;
   - `spec.repo`, `spec.branch`, `spec.vault` and `metadata.namespace` removed;
   - `probes` reserved.
+
+  `pkg/manifest` implements it next to `v1alpha1`, which Othela still reads:
+  `ParseRepoManifest`, `DecodeRepoManifest`, `ValidateRepoManifest` and
+  `SelectPlaybooks`. Decoding is strict, so a misspelt key fails instead of
+  silently leaving a playbook in plan mode. A removed `v1alpha1` field fails
+  with what replaced it, and a `v1alpha1` file fails with a pointer to the
+  migration. `probes` fails by name until it has a schema. The nodeGroup checks
+  shared with `v1alpha1` now take a field path; `v1alpha1` messages are
+  unchanged.
 
   The Kubernetes envelope stays. The design doctrine is reworded to say what it
   meant: do not copy Kubernetes' topology mechanically; its file format and

@@ -32,7 +32,7 @@ func Validate(m *Manifest) error {
 	if err := validateSpec(&m.Spec); err != nil {
 		return err
 	}
-	return validateNodeGroups(m.Spec.NodeGroups)
+	return validateNodeGroups("spec.nodeGroups", m.Spec.NodeGroups)
 }
 
 // validateTypeMeta rejects manifests written against a different schema. Before
@@ -58,16 +58,19 @@ func validateSpec(spec *Spec) error {
 	return nil
 }
 
-func validateNodeGroups(groups []NodeGroup) error {
+// validateNodeGroups checks a list of nodeGroups found at field, which is
+// "spec.nodeGroups" in v1alpha1 and "spec.playbooks[i].nodeGroups" in v1alpha2,
+// so every message points at the exact place in the file.
+func validateNodeGroups(field string, groups []NodeGroup) error {
 	if len(groups) == 0 {
-		return fmt.Errorf("spec.nodeGroups is empty, expected at least one group carrying a name and a nodeSelector")
+		return fmt.Errorf("%s is empty, expected at least one group carrying a name and a nodeSelector", field)
 	}
 	for i, group := range groups {
-		if err := validateNodeGroup(i, group); err != nil {
+		if err := validateNodeGroup(fmt.Sprintf("%s[%d]", field, i), group); err != nil {
 			return err
 		}
 	}
-	return validateNodeGroupSelectorUniqueness(groups)
+	return validateNodeGroupSelectorUniqueness(field, groups)
 }
 
 // validateNodeGroupSelectorUniqueness rejects manifests where two nodeGroups
@@ -78,15 +81,15 @@ func validateNodeGroups(groups []NodeGroup) error {
 //
 // Scope: exact map equality only. Subset/superset overlap (e.g. {role: proxy}
 // vs. {role: proxy, tier: hot}) is deferred to v1beta1.
-func validateNodeGroupSelectorUniqueness(groups []NodeGroup) error {
+func validateNodeGroupSelectorUniqueness(field string, groups []NodeGroup) error {
 	for i := 0; i < len(groups); i++ {
 		for j := i + 1; j < len(groups); j++ {
 			if selectorEqual(groups[i].NodeSelector, groups[j].NodeSelector) {
 				return fmt.Errorf(
-					"spec.nodeGroups[%d] (%q) and spec.nodeGroups[%d] (%q) have identical nodeSelector %v; "+
+					"%s[%d] (%q) and %s[%d] (%q) have identical nodeSelector %v; "+
 						"only one would be dispatched, the other silently dropped. "+
 						"Give each group a distinct selector. See ADR-0004",
-					i, groups[i].Name, j, groups[j].Name, groups[i].NodeSelector,
+					field, i, groups[i].Name, field, j, groups[j].Name, groups[i].NodeSelector,
 				)
 			}
 		}
@@ -111,12 +114,12 @@ func selectorEqual(a, b map[string]string) bool {
 // validateNodeGroup surfaces the empty-nodeSelector trap: MatchNodeGroups treats
 // an empty selector as matching nothing, which reads as "no agent is eligible"
 // rather than the "matches everything" an operator tends to assume.
-func validateNodeGroup(index int, group NodeGroup) error {
+func validateNodeGroup(field string, group NodeGroup) error {
 	if group.Name == "" {
-		return fmt.Errorf("spec.nodeGroups[%d].name is empty, expected a non-empty identifier such as %q", index, "standard-proxies")
+		return fmt.Errorf("%s.name is empty, expected a non-empty identifier such as %q", field, "standard-proxies")
 	}
 	if len(group.NodeSelector) == 0 {
-		return fmt.Errorf("spec.nodeGroups[%d] (%q) has an empty nodeSelector and would match no node, expected at least one label such as %q", index, group.Name, "role: edge-proxy")
+		return fmt.Errorf("%s (%q) has an empty nodeSelector and would match no node, expected at least one label such as %q", field, group.Name, "role: edge-proxy")
 	}
 	return nil
 }

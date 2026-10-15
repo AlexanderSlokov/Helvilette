@@ -47,20 +47,39 @@ of re-reading the history. Update this section at the end of every session.
   `fix/43-agent-state-on-disk`.
 - Doctrine reworded: it rejects copying Kubernetes' topology mechanically, not
   its file format or its state-handling logic. Absorb selectively.
+- Manifest `v1alpha2` implemented in `pkg/manifest` with tests, on branch
+  `docs/adr-0009-manifest-v1alpha2`. Nothing calls it yet.
+  `ParseRepoManifest` returns `os.IsNotExist` unwrapped for the fallback;
+  `SelectPlaybooks` gives playbooks in file order with the first matching
+  group. The shared nodeGroup checks now take a field path, so v1alpha2
+  errors read `spec.playbooks[i].nodeGroups[j]`.
 - All branches pushed. No PR, by the owner's choice.
 
 ### Next
 
-1. Implement manifest `v1alpha2` in `pkg/manifest` (ADR-0009), with tests. It
-   is pure parsing and validation, so it can land before the agent uses it.
-2. Then the larger #43 items, on a branch from `docs/adr-0009-manifest-v1alpha2`:
-   repo URL, branch and allowed signers in `agent.yaml`; the agent reads
-   `helvilette.yml` from its own checkout; the Othela client and
-   `--othela-url` leave the agent entirely (decided 2026-10-15, no
-   deprecation); check run before apply.
-3. That change rewrites the e2e suite: the agent node no longer depends on
-   Othela, and the dispatch specs in `tests/e2e/gitops_test.go` test the
-   standalone agent instead.
+Each step is one branch, cut from the previous one, with tests and a green
+`make e2e` before moving on. All of them close items of #43.
+
+1. Agent reads its own repository. `agent.yaml` gains `repoURL` and `branch`
+   (ADR-0001 layering, flags and env included). `--othela-url`, `OTHELA_URL`,
+   `othelaURL`, `RegisterNode`, `Poll` and `SendReport` are deleted outright.
+   Each cycle: `git.EnsureRepo`, then `manifest.ParseRepoManifest` on the root
+   `helvilette.yml`, then `manifest.SelectPlaybooks` with the node's labels,
+   then run each selection in order, stopping at the first failure
+   (ADR-0009 D6). No match: one log line, nothing run (D9).
+2. Same branch: e2e follows. Give `nginx-collection` a root `helvilette.yml`
+   in `v1alpha2`; point `node-1` at it through `agent.env`; drop the agent's
+   `depends_on: othela`; rewrite the dispatch specs in
+   `tests/e2e/gitops_test.go` to assert on the agent's own journal and
+   `last_run_summary.json`. Othela specs stay as long as the service does.
+3. Fallback without `helvilette.yml`: `<fqdn>.yml`, `<hostname>.yml`,
+   `local.yml`, plan mode (ADR-0009 D7).
+4. Check before apply: `--check --diff` always first; `apply: auto` applies
+   only after a passing check; `plan` stops there (ADR-0008 D9,
+   ADR-0009 D4). The record says which mode ran.
+5. SSH commit signing with at least two allowed signers (ADR-0008 D9).
+6. Pinned Ansible and the compatibility matrix (ADR-0008 D6). Needs a short
+   design talk with the owner: how it is packaged (venv, tarball, image).
 
 ### Waiting on the owner
 
@@ -96,8 +115,9 @@ the record), with Othela stopped.
       `<fqdn>.yml`, `<hostname>.yml`, `local.yml`. (ADR-0008 D2, was 3.14)
 - [x] ADR for the manifest schema after `spec.repo` loses its role:
       ADR-0009, `v1alpha2`. (ADR-0008 D3)
-- [ ] Implement `v1alpha2` in `pkg/manifest` alongside `v1alpha1`, which
-      Othela keeps reading. `spec.playbooks` list, `apply` defaulting to
+- [x] Implement `v1alpha2` in `pkg/manifest` alongside `v1alpha1`, which
+      Othela keeps reading. `ParseRepoManifest`, `DecodeRepoManifest`,
+      `ValidateRepoManifest`, `SelectPlaybooks`. `spec.playbooks` list, `apply` defaulting to
       `plan`, paths confined to the repository, `probes` rejected as not yet
       supported, removed fields rejected with a pointer to what replaced them.
       (ADR-0009)
