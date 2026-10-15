@@ -9,6 +9,13 @@
 2. Before ending, rewrite that section: what this session finished, what to do
    next in order, and what waits on the owner.
 
+### When starting work on an issue
+
+1. Create the branch from the issue: `gh issue develop <number> --base <base branch>`.
+   GitHub links it under the issue's Development section. A branch made with
+   `git switch -c` cannot be linked afterwards.
+2. If work began on an unlinked branch anyway, comment the branch link on the issue.
+
 ### When edit BACKLOG file
 
 1. Write sentences short, concise, clear, and accurate.

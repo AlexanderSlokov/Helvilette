@@ -57,7 +57,8 @@ of re-reading the history. Update this section at the end of every session.
 
 ### Next
 
-Each step is one branch, cut from the previous one, with tests and a green
+Each step is one branch, created with `gh issue develop 43 --base <previous
+branch>` so it links to the issue, with tests and a green
 `make e2e` before moving on. All of them close items of #43.
 
 1. Agent reads its own repository. `agent.yaml` gains `repoURL` and `branch`
