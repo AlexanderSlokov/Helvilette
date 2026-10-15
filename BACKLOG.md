@@ -39,7 +39,7 @@ of re-reading the history. Update this section at the end of every session.
 - All of it sits on branch `docs/adr-0008-standalone-agent`, committed, not
   pushed, no PR yet. No Go code changed.
 
-### Do next, in order
+### Next
 
 1. Ask the owner whether to push the branch and open a PR into `develop`.
 2. Write ADR-0009: the manifest schema once `spec.repo` retires (ADR-0008 D3).
@@ -329,7 +329,7 @@ free. Only what a large organisation needs may be sold.
 | --- | --- |
 | The whole agent and every command on the node | RBAC for multiple teams (was 5.2) |
 | Halt with reason, rollback to an older commit | SSO, LDAP, custom auth |
-| Error messages, run records, logs | Audit-grade immutable log |
+| Error messages, run records, logs; immutable audit log | Audit certification of the log (an enterprise need, deferred) |
 | Basic trail: who changed what, when, halt reasons | Compliance packs: FIPS 140, SOC 2, ISO 27001 |
 | Basic fleet map in Othela | Multi-site, multi-cluster coordination; namespaces (was 5.2) |
 

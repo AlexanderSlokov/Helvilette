@@ -28,7 +28,7 @@ Khoảnh khắc tệ nhất của họ trông như sau:
 
 **Hệ thống lai****:** Một "distributed monolith" nửa container, nửa kế thừa, log rải rác khắp nơi.
 
-**N****guyên**** ****nhân**** s****ự cố****:**** **Khoảng 80% sự cố không phải do code chết, mà do dịch vụ vẫn chạy nhưng chạy sai cấu hình. \[TODO: cần nguồn số liệu xác thực luận điểm này\] Dịch vụ có nhiều bản sao thì phải SSH vào từng máy để sửa cấu hình.
+**N****guyên**** ****nhân**** s****ự cố****:**** **Theo Google SRE, khoảng 70% sự cố mất dịch vụ bắt nguồn từ thay đổi trên hệ thống đang chạy, không phải từ code chết \[Beyer và cộng sự, 2016\]. Thay đổi cấu hình là một dạng như vậy: dịch vụ vẫn chạy nhưng chạy sai. Dịch vụ có nhiều bản sao thì phải SSH vào từng máy để sửa cấu hình.
 
 **Đồ nghề tối thiểu****:** Trong tay có một giao diện quản lý container và gần như không có gì khác. Không có rolling update, vì phần mềm được triển khai vốn không được thiết kế để làm được rolling update, chỉ có thể thực hiện blue-green  deployment có downtime.
 
@@ -36,7 +36,7 @@ Khoảnh khắc tệ nhất của họ trông như sau:
 
 ### 1.2. Nỗi đau chung
 
-Khái quát lên, người vận hành tại các SME thường là những người phải **ch****ị****u** **trách nhiệm nhưng không có**** th****ực q****u****y****ền**** ****v****à ****đ****ư****ợc ****đ****ối ****x****ử**** ****t****ương ****x****ứng v****ới ****tr****ách ****nhi****ệm** **đó**. Hệ thống do người khác quyết định, hỏng vì miss configuration là chiếm đa số trong phân phối patero, và khi hỏng thì người khác chen vào quyết định. Sự chú ý của người vận hành vì thế đã bị chia đôi: một nửa cho hệ thống, một nửa cho con người.
+Khái quát lên, người vận hành tại các SME thường là những người phải **ch****ị****u** **trách nhiệm nhưng không có**** th****ực q****u****y****ền**** ****v****à ****đ****ư****ợc ****đ****ối ****x****ử**** ****t****ương ****x****ứng v****ới ****tr****ách ****nhi****ệm** **đó**. Hệ thống do người khác quyết định, phần lớn sự cố đến từ thay đổi trên hệ thống đang chạy như thay đổi cấu hình, và khi hỏng thì người khác chen vào quyết định. Sự chú ý của người vận hành vì thế đã bị chia đôi: một nửa cho hệ thống, một nửa cho con người.
 
 Từ đó, tác giả muốn chỉ ra một định nghĩa: **công cụ nào lấy thêm dù chỉ một phần sự chú ý ****của**** ****m****ột ng****ười ****vận ****h****ành**** ****k****h****ỏi vấ****n** **đề**** đang**** x****ảy r****a**** l****à m****ột c****ông c****ụ t****ồi****.**
 
@@ -173,8 +173,8 @@ Helvilette đưa playbook Ansible về chạy ngay trên từng máy theo kiểu
 Phân tích theo học thuyết:
 
 1. **Phân loại nhiệm vụ.** Công việc chia làm hai loại. *Tuần tra*: mỗi máy tự giữ trạng thái của mình, hằng ngày. *Đột kích*: nhiều máy phối hợp có thứ tự, hiếm khi xảy ra. Trong điều kiện thực tế của tác giả, đột kích gần như không tồn tại: cụm k3s hỏng thì đốt đi và dựng lại bằng Terraform, và việc dựng cụm đã có công cụ riêng.
-2. **Đặt bộ não ở chỗ sự thật nằm sẵn.** Bản khai báo đã nằm trong git, trong `helvilette.yaml`. Agent không cần ai cầm tay chỉ việc, chỉ cần đọc được nhiệm vụ của mình.
-3. **Agent là MiG-21.** Ở giai đoạn 1, agent là một phần mềm hoàn chỉnh, một `ansible-pull` được nâng cấp chỉn chu: kéo git theo systemd timer, kiểm chữ ký commit, đọc yaml, luôn chạy thử trước, chỉ áp dụng khi yaml cho phép, ghi biên bản.
+2. **Đặt bộ não ở chỗ sự thật nằm sẵn.** Bản khai báo đã nằm trong git, trong `helvilette.yml`. Agent không cần ai cầm tay chỉ việc, chỉ cần đọc được nhiệm vụ của mình.
+3. **Agent là MiG-21.** Ở giai đoạn 1, agent là một phần mềm hoàn chỉnh, một `ansible-pull` được nâng cấp chỉn chu: kéo git định kỳ, kiểm chữ ký commit, đọc yaml, luôn chạy thử trước, chỉ áp dụng khi yaml cho phép, ghi biên bản. Agent là một tiến trình thường trực, vì nó phải chủ động đi kiểm tra sức khoẻ dịch vụ (probe) chứ không chỉ chờ lịch chạy: MiG đã cất cánh thì phải bay suốt nhiệm vụ. Bù lại, nó không giữ trạng thái quan trọng nào trong bộ nhớ, nên bị tắt ngang ở bất cứ lúc nào cũng không hỏng gì. "Không có tiến trình thường trực" là lựa chọn tuỳ phần mềm, không phải luật chung.
 4. **Othela là mạng dẫn đường mặt đất.** Othela được hoãn sang giai đoạn 2, chỉ được thêm vào, không bao giờ trở thành thứ bắt buộc. Nó chỉ đọc những gì agent đã ghi ra và chỉ ghi vào git; bên trong agent không có "chế độ Othela". Bản Helvilette điều phối nhiều máy là một hệ hình khác, dành cho những đội có mối đe doạ thật, và cần một đơn vị thật để bắn thử.
 5. **Ống lót tay.** Agent khai báo vùng chạm của mình: dòng đánh dấu trên mỗi file nó giữ, và lời chào khi đăng nhập cho biết máy đang được giữ trạng thái. Lệnh `helvilette halt --reason` có danh mục lý do sẵn và ghi vào biên bản. Halt không tự hết hạn; agent chỉ ghi cảnh báo vào syslog sau mỗi vòng.
 6. **Công cụ cứu hộ là Ansible.** Playbook là playbook thường. Người vận hành luôn chạy trực tiếp được mà không cần tới agent.
@@ -251,6 +251,7 @@ Ba ca thực chiến cho thấy học thuyết vừa dùng để đánh giá, v�
 
 - Các chi tiết lịch sử về vũ khí Liên Xô trong bài là kiến thức phổ thông, **chưa được đối chiếu với nguồn**. Cần bổ sung trích dẫn trước khi công bố chính thức.
 - Verma, A. và cộng sự. *Large-scale cluster management at Google with Borg*. EuroSys 2015.
+- Beyer, B., Jones, C., Petoff, J., Murphy, N. R. (biên tập). *Site Reliability Engineering: How Google Runs Production Systems*. O'Reilly, 2016. Chương 1, mục "Change Management": "SRE has found that roughly 70% of outages are due to changes in a live system." https://sre.google/sre-book/introduction/
 - Tài liệu của hệ sinh thái Naughtian: *The Letter from Naught*; white paper *Kuberina*; đề xuất *Naughtian Kalena*; README và ARCHITECTURE của Naught.
 - **Đóng góp:** ý tưởng, chân dung người vận hành, các nguyên lý và tiêu chí đánh giá do Đinh Tấn Dũng đưa ra qua một buổi phỏng vấn. Claude (Anthropic) hỗ trợ đặt câu hỏi, cấu trúc và biên tập bản thảo.
 

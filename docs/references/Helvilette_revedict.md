@@ -11,7 +11,7 @@ Helvilette nên đạt được các tiêu chí sau
 1. **C****ác ****t****í****nh ****n****ăng ****c****ốt ****lõi**** ****v****ề**** ****m****ặt ****v****ận h****ành ****không bao giờ nằm sau paywall****:** Trạng thái từng máy, halt triển khai kèm theo lý do, quay về commit cũ, immutable audit log luôn miễn phí.
 2. Useful log: Có đủ file, dòng, task, commit, và theo các đề mục sau: cái gì hỏng, ở đâu, phần mềm đã làm gì, phần mềm chưa làm gì, một gợi ý cho 80% hành động nên làm tiếp theo.
 3. **Không có bẫy kế thừa ngầm****:** Có lệnh in ra cấu hình hiệu lực cuối cùng (như `nginx -T`), và lệnh giải thích tính khả dụng của playbook áp lên máy này.
-4. ** ****K****hông ****b****reak**** ****us****e****r s****pace****:**** `**helvilette.yaml` và định dạng biên bản có số phiên bản, chỉ được thêm trường. Hành vi mặc định không đổi trong các bản vá.
+4. ** ****K****hông ****b****reak**** ****us****e****r s****pace****:**** `**helvilette.yml` và định dạng biên bản có số phiên bản, chỉ được thêm trường. Hành vi mặc định không đổi trong các bản vá.
 5. **Không cần ****o****rc****hes****tra****tor** **để sống.** Agent độc lập giờ đây sẽ là tiêu chuẩn của dự án. Server phục vụ orchestrate quy mô lớn sẽ là phần cộng thêm.
 6. **Giấy phép mở**** ****là bảo hiểm cho khẩu súng.** Đề xuất giữ Apache-2.0. Bài học từ NGINX là giấy phép mở cho phép khẩu súng sống tiếp qua các bản tách, kể cả khi chủ sở hữu đổi hướng.
 
@@ -27,8 +27,8 @@ Giai đoạn 3 chỉ mở khi có một đội thật cần phối hợp nhiều
 
 Mục tiêu là tách agent khỏi Othela, tự thân Helvilette phải hoạt động được như Ansible-pull là tối thiểu.
 
-- [ ] Viết ADR "Agent độc lập, Othela tuỳ chọn", ghi lại quyết định ngày 10/10/2026.
-- [ ] Đóng băng Othela: giữ mã trong một nhánh riêng, ngừng phát triển.
+- [x] Viết ADR "Agent độc lập, Othela tuỳ chọn": ADR-0008, ngày 14/10/2026.
+- [ ] Đóng băng Othela: giữ mã trong repo, ngừng phát triển. README và BACKLOG tuyên bố đang đại tu (ADR-0008 D8).
 - [ ] Gỡ khỏi đường chạy của agent: long-poll tới Othela, SQLite, đường hầm Chisel, và mọi kết nối mạng ngoài git và Kallisto.
 - [ ] Kiểm kê bộ test hiện có (Ginkgo, Testcontainers) để giữ lại cho giai đoạn 1.
 
@@ -61,10 +61,10 @@ Agent 1.0 là một `ansible-pull` được nâng cấp chỉn chu: tự kéo, t
 
 ### Cơ cấu
 
-- [ ] systemd timer gọi `git fetch`, chờ ngẫu nhiên để cả đàn máy không kéo cùng lúc. Không có tiến trình thường trực.
-- [ ] URL repo cố định trong `helvilette.yaml`; không cần server "trao" repo cho agent.
-- [ ] Chỉ chấp nhận commit có chữ ký hợp lệ.
-- [ ] Đọc `helvilette.yaml`: playbook nào áp cho máy này theo nhãn, playbook nào được tự áp dụng, playbook nào chỉ lập kế hoạch.
+- [ ] Tiến trình thường trực dưới systemd (`Restart=always`), gọi `git fetch` định kỳ, chờ ngẫu nhiên để cả đàn máy không kéo cùng lúc. Thường trực vì agent phải chủ động đi kiểm tra probe. Mọi trạng thái quan trọng nằm trên đĩa, ghi atomic, nên bị `kill -9` lúc nào cũng không hỏng (ADR-0008 D4).
+- [ ] URL repo và nhánh nằm trong cấu hình cục bộ của agent (`agent.yaml`, đặt bằng cloud-init), giống `ansible-pull -U -C`; không cần server "trao" repo cho agent (ADR-0008 D2).
+- [ ] Chỉ chấp nhận commit ký bằng khoá SSH có trong danh sách trên máy. Bắt buộc tối thiểu hai khoá: một khoá dùng hằng ngày, một khoá cất offline (ADR-0008 D9).
+- [ ] Đọc `helvilette.yml`: playbook nào áp cho máy này theo nhãn, playbook nào được tự áp dụng, playbook nào chỉ lập kế hoạch.
 - [ ] Luôn chạy thử trước. Chạy thử hỏng thì dừng, máy giữ nguyên trạng thái cũ.
 - [ ] Cảnh báo khi tỉ lệ bước không chạy thử được vượt ngưỡng; quyền "cứ chạy đi" là một dòng trong yaml, nên cũng được ký.
 - [ ] Khoá chống hai lần chạy chồng lên nhau.
@@ -76,7 +76,17 @@ Agent 1.0 là một `ansible-pull` được nâng cấp chỉn chu: tự kéo, t
 - [ ] Lời chào khi đăng nhập: máy đang được giữ trạng thái, bao nhiêu file, bao nhiêu service, lần chạy gần nhất
 - [ ] Task `shell` và `command` được ghi là "các bước không thể biết chính xác tác động".
 - [ ] `helvilette halt --reason` với danh mục lý do: bảo trì có kế hoạch, chữa cháy sự cố, sự cố hạ tầng hoặc mất điện, thử nghiệm, khác (bắt buộc ghi chú - giống windows server). `helvilette resume` để bỏ halt.
-- [ ] Halt không tự hết hạn. Mỗi vòng timer, agent ghi một dòng cảnh báo vào syslog và lời chào đăng nhập hiện rõ đang halt bao lâu, vì lý do gì, do ai.
+- [ ] Halt không tự hết hạn. Mỗi vòng, agent ghi một dòng cảnh báo vào syslog và lời chào đăng nhập hiện rõ đang halt bao lâu, vì lý do gì, do ai.
+
+### Probe và playbook khắc phục
+
+Tính năng lõi, thứ `ansible-pull` không có (ADR-0008 D7). `ansible-pull` biết cấu hình có khớp playbook không, nhưng không biết phần mềm còn sống không. Nhiều app không có công cụ đo downtime từ ngoài vào, cũng không chạy trong container để container runtime kiểm tra hộ.
+
+- [ ] Liveness probe cho service systemd: HTTP, TCP, exec. Bật theo từng service trong `helvilette.yml`, kèm lý do.
+- [ ] Probe hỏng thì chạy thử playbook của service đó trước, để biết cái gì đã thay đổi.
+- [ ] Playbook khắc phục chỉ chạy khi service đó đã opt-in. Hỏng thì lùi dần (backoff), không chạy vòng lặp.
+- [ ] Mọi lần khắc phục được ghi vào biên bản và journal.
+- [ ] Readiness, dùng làm điều kiện cho rolling update, là việc của Othela ở giai đoạn 3.
 
 ### Diff on instance
 
@@ -121,7 +131,7 @@ Các lệnh quản trị + halt và resume: `status`, `plan`, `config` (cấu h�
 
 Mục tiêu là để một người vận hành không quen tác giả tự cài, tự dùng và tự sửa được.
 
-- [ ] Tài liệu kiểu thẻ tra cứu: mỗi khoá trong `helvilette.yaml` có cú pháp, giá trị mặc định và chỗ được dùng, như tài liệu chỉ thị của NGINX.
+- [ ] Tài liệu kiểu thẻ tra cứu: mỗi khoá trong `helvilette.yml` có cú pháp, giá trị mặc định và chỗ được dùng, như tài liệu chỉ thị của NGINX.
 - [ ] Quickstart chuẩn, dài không quá một trang: "Bạn có repo Ansible? Cool."
 - [ ] Ma trận hỗ trợ được thử thật: Ubuntu, Debian, RHEL; VPS trong nước, Proxmox, EC2, GCP.
 - [ ] Hướng dẫn tạm dừng và cứu hộ bằng `ansible-playbook`, viết cho người đang chữa cháy lúc 2 giờ sáng.
@@ -149,7 +159,7 @@ M**ột người vận hành đơn độc có cần thứ này để sống sót
 | --- | --- |
 | Toàn bộ agent và mọi lệnh trên máy | Phân quyền cho nhiều đội (RBAC) |
 | Halt kèm lý do, quay về commit cũ | SSO, LDAP, xác thực tuỳ biến |
-| Thông báo lỗi, biên bản, log | Nhật ký đạt chuẩn kiểm toán, bất biến |
+| Thông báo lỗi, biên bản, log; nhật ký kiểm toán bất biến | Chứng nhận nhật ký đạt chuẩn kiểm toán (việc của tập đoàn, dời lại) |
 | Dấu vết cơ bản: ai đổi gì, lúc nào, lý do halt | Hồ sơ tuân thủ: FIPS 140, SOC 2, ISO 27001 |
 | Bản đồ đội máy cơ bản trong Othela | Điều phối nhiều site, nhiều cụm |
 
