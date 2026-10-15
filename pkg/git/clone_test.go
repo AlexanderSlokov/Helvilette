@@ -16,8 +16,8 @@ const testBranch = "main"
 
 // sourceRepo is a real on-disk repository standing in for a remote Git server.
 // EnsureRepo's whole job is ref resolution across a fetch, which a fake cannot
-// exercise: the bug in issue #32 lived in how go-git updates refs/remotes/*
-// versus refs/heads/*. So this is a named local fixture, not a mock.
+// exercise: what matters is how go-git updates refs/remotes/* versus
+// refs/heads/*. So this is a named local fixture, not a mock.
 type sourceRepo struct {
 	dir  string
 	repo *git.Repository
@@ -67,11 +67,10 @@ func (s *sourceRepo) commitFile(name, content string) string {
 	return hash.String()
 }
 
-// TestEnsureRepo_PicksUpCommitsPushedAfterClone is the regression test for
-// issue #32. Before the fix, EnsureRepo resolved the branch through
-// ResolveRevision, which matches refs/heads/<branch> — a ref that fetch never
-// advances — so Othela re-checked-out its clone-time commit on every poll and
-// a manifest pushed after startup was never seen.
+// TestEnsureRepo_PicksUpCommitsPushedAfterClone guards the trap in branch
+// resolution: refs/heads/<branch> is never moved by a fetch, so resolving the
+// branch there returns the clone-time commit forever and new commits are never
+// seen.
 func TestEnsureRepo_PicksUpCommitsPushedAfterClone(t *testing.T) {
 	source := newSourceRepo(t)
 	source.commitFile("first.yml", "one")
@@ -259,9 +258,8 @@ func TestEnsureRepo_EmptyRefUsesTheClonedBranch(t *testing.T) {
 	}
 }
 
-// Regression for a bug found while making the agent keep one checkout
-// directory (issue #43): a fetch uses the URL stored in the checkout, so a
-// changed URL kept pulling the old repository.
+// A fetch uses the URL saved inside the checkout, so without a re-clone a
+// changed URL would keep pulling the old repository.
 func TestEnsureRepo_ReclonesWhenURLChanges(t *testing.T) {
 	first := newSourceRepo(t)
 	first.commitFile("first.txt", "1")

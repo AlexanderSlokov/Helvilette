@@ -1,5 +1,5 @@
 // Tests for cycle.go: what the standalone agent runs for a commit, in which
-// order, and what it records. ADR-0008 D1 and D5, ADR-0009 D4, D6 and D9.
+// order, and what it records.
 package main
 
 import (
@@ -93,7 +93,7 @@ func TestRunCycle_PassesModeFileAndGroup(t *testing.T) {
 	}
 }
 
-// ADR-0009 D6: a failure stops the playbooks after it, and the record says so.
+// A failure stops the playbooks after it, and the record says so.
 func TestRunCycle_StopsAtFirstFailureAndNamesSkipped(t *testing.T) {
 	agent, runner := cycleAgent(t, repoWith(t, "c1", twoPlaybooks))
 	runner.failing["baseline"] = true
@@ -126,7 +126,7 @@ func TestRunCycle_DoesNotRerunTheSameCommit(t *testing.T) {
 	}
 }
 
-// ADR-0009 D9: no match is a declared state, recorded, with nothing run.
+// No match is a normal state: recorded, with nothing run.
 func TestRunCycle_RecordsNothingSelected(t *testing.T) {
 	agent, runner := cycleAgent(t, repoWith(t, "c1", twoPlaybooks))
 	agent.config.Labels = map[string]string{"role": "db"}

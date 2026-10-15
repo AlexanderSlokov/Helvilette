@@ -1,13 +1,13 @@
 // Manifest v1alpha2: the file the standalone agent reads from the root of its
 // own checkout. One file lists every playbook in the repository, in order, and
-// says which of them may change machines on their own. See ADR-0009.
+// says which of them may change machines on their own.
 //
 // v1alpha1 (types.go) stays for Othela, which is frozen and still reads it.
 package manifest
 
-// APIVersionV1Alpha2 is the schema identity the agent accepts. The envelope
-// keeps Kubernetes' shape on purpose: the doctrine rejects copying Kubernetes'
-// topology, not its file format (ADR-0009 D2).
+// APIVersionV1Alpha2 is the schema identity the agent accepts. The file keeps
+// the Kubernetes shape (apiVersion, kind, metadata, spec) on purpose: anyone
+// who has read a Kubernetes manifest can read this one.
 const APIVersionV1Alpha2 = "helvilette.naughtian.org/v1alpha2"
 
 // RepoManifest is a parsed v1alpha2 helvilette.yml.
@@ -25,7 +25,7 @@ type RepoMetadata struct {
 	Labels      map[string]string `yaml:"labels"`
 }
 
-// RepoSpec lists playbooks in the order the agent runs them (ADR-0009 D6).
+// RepoSpec lists playbooks in the order the agent runs them.
 type RepoSpec struct {
 	Playbooks []PlaybookEntry `yaml:"playbooks"`
 }
@@ -42,14 +42,14 @@ type PlaybookEntry struct {
 type ApplyMode string
 
 const (
-	// ApplyAuto applies after a passing check run.
+	// ApplyAuto lets the agent change the machine.
 	ApplyAuto ApplyMode = "auto"
 	// ApplyPlan only checks and records; nothing on the machine changes.
 	ApplyPlan ApplyMode = "plan"
 )
 
-// EffectiveApply returns the playbook's mode, reading an absent key as plan:
-// changing machines must be asked for in a signed commit (ADR-0009 D4).
+// EffectiveApply returns the playbook's mode. No apply key means plan: a
+// playbook changes machines only when the file says so explicitly.
 //
 //	if entry.EffectiveApply() == manifest.ApplyAuto { ... }
 func (p PlaybookEntry) EffectiveApply() ApplyMode {

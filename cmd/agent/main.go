@@ -1,6 +1,6 @@
 // Command agent is the Helvilette node agent. It pulls one Git repository, reads
-// the helvilette.yml at its root, and runs the playbooks that select this node.
-// It needs no control plane (ADR-0008).
+// the helvilette.yml at its root, and runs the playbooks meant for this node.
+// It needs no control plane.
 package main
 
 import (
@@ -15,9 +15,9 @@ import (
 	"helvilette/pkg/log"
 )
 
-// cliFlags holds the raw flag values, before LoadConfig layers them over the
-// config file, the environment and the defaults. Empty means "not given", which
-// is what lets a lower-precedence source win. See ADR-0001.
+// cliFlags holds the flags exactly as typed. An empty string means the flag was
+// not given, so LoadConfig keeps the value from agent.yaml, the environment or
+// the default.
 type cliFlags struct {
 	configFile   string
 	repoURL      string
@@ -29,12 +29,11 @@ type cliFlags struct {
 	printConfig  bool
 }
 
-// newRootCmd builds the agent's command with every flag registered.
+// newRootCmd builds the agent command with all its flags.
 //
-// Separated from main so a test can reach the flag set. The agent's systemd unit
-// passes flags that have to exist, and nothing checked that until this could be
-// called from a test; see BACKLOG 6.7 and the Othela equivalent in
-// TestOthelaUnitFlagsExistOnTheCLI.
+// It is separate from main so a test can list the flags and check that every
+// flag the systemd unit passes really exists. Without that check, a renamed
+// flag would only show up when the unit fails to start on a real machine.
 //
 //	if cmd := newRootCmd(); cmd.Flags().Lookup("node-id") == nil { ... }
 func newRootCmd() *cobra.Command {

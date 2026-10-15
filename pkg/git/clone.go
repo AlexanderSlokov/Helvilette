@@ -30,11 +30,10 @@ const fetchRefSpec = "+refs/heads/*:refs/remotes/" + remoteName + "/*"
 // commit SHA.
 //
 // ref is a branch name, a tag name, or a full commit SHA; empty means the
-// branch the clone landed on. destDir is treated as a disposable cache: local
-// changes are discarded on every call, and a directory that is not a readable
-// repository is deleted and cloned again. Callers compare the returned SHA
-// across calls to tell a no-op sync from one that moved the fleet forward.
-// See ADR-0005.
+// branch the clone landed on. destDir is a disposable copy: local changes are
+// discarded on every call, and a directory that is not a readable repository,
+// or was cloned from another URL, is deleted and cloned again. Callers compare
+// the returned SHA across calls to tell "nothing new" from "a new commit".
 //
 //	sha, err := git.EnsureRepo("https://git.example.com/fleet.git", "/var/lib/helvilette/othela/fleet", "main")
 func EnsureRepo(url, destDir, ref string) (string, error) {
@@ -101,11 +100,9 @@ func recloneUnusable(url, destDir string, openErr error) (*git.Repository, error
 	return discardAndClone(url, destDir)
 }
 
-// recloneForNewURL replaces a checkout cloned from a different URL. A fetch
-// uses the URL stored in the checkout, not the one passed in, so without this
-// a node whose repoURL changed kept pulling the old repository and reported
-// success: the "runs but wrong" state Law 0 forbids. The agent keeps one
-// checkout directory whatever the URL, which is what exposed it (issue #43).
+// recloneForNewURL replaces a checkout that was cloned from another URL. A
+// fetch uses the URL saved inside the checkout, not the url argument, so
+// without this a changed URL would keep pulling the old repository.
 func recloneForNewURL(url, destDir, stored string) (*git.Repository, error) {
 	logger.Warn().Str("dest_dir", destDir).Str("stored_url", stored).Str("url", url).
 		Msg("checkout was cloned from a different URL, discarding it and cloning the configured one")
@@ -144,14 +141,13 @@ func fetchRemote(repo *git.Repository, destDir string) error {
 	return nil
 }
 
-// resolveRemoteRef resolves ref against what the remote just advertised, never
+// resolveRemoteRef resolves ref against what the remote just sent, never
 // against a local branch.
 //
-// This is the fix for issue #32. Fetch advances refs/remotes/origin/* only, but
-// go-git's ResolveRevision consults refs/heads/<ref> first (see
-// plumbing.RefRevParseRules), and refs/heads/main is left wherever the clone
-// landed. Othela therefore re-checked-out its clone-time commit on every poll
-// and never saw a manifest pushed after startup. See ADR-0005.
+// A fetch only moves refs/remotes/origin/*. go-git's ResolveRevision looks at
+// refs/heads/<ref> first, and the local refs/heads/main stays where the clone
+// left it, so resolving "main" that way returns the commit from clone time
+// forever and new commits are never seen.
 func resolveRemoteRef(repo *git.Repository, ref string) (plumbing.Hash, error) {
 	if ref == "" {
 		clonedRef, err := clonedBranch(repo)

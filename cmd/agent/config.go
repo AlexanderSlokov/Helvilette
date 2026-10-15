@@ -1,13 +1,16 @@
-// Agent configuration: where each value came from, and how the sources layer.
-// An explicit YAML file outranks the ambient environment, which outranks the
-// defaults, and every resolved value records its origin so a node can explain
-// itself from its own logs. See ADR-0001.
+// Agent configuration.
 //
-// Split out of main.go, which exceeded the 500-line ceiling in AGENTS.md.
-// See BACKLOG 6.7. Since ADR-0008 the agent names the repository it pulls
-// (repoURL, branch) instead of an Othela URL; othelaURL, OTHELA_URL and
-// --othela-url were removed outright, with no deprecation, because nobody
-// used them yet (issue #43).
+// Each value can come from four places. When two set the same value, the
+// higher one wins:
+//
+//	--flag  >  agent.yaml  >  environment variable  >  built-in default
+//
+// The agent remembers which place each value came from, and prints it with
+// --print-config and in its first log line, so an operator can see why a node
+// behaves the way it does.
+//
+// The agent needs no control plane. It is told one Git repository (repoURL,
+// branch) and pulls it itself.
 package main
 
 import (
@@ -48,19 +51,16 @@ func sourceEnv(name string) string { return "env(" + name + ")" }
 
 func sourceCLI(flag string) string { return "cli(--" + flag + ")" }
 
-// ConfigProvenance records which source supplied each configuration value, keyed by the
-// field's YAML name; individual labels are keyed as "labels.<key>". It lets an operator
-// see why a node is configured the way it is without re-deriving the precedence rules
-// against the machine's state. See docs/informations/ADRs/ADR-0001.md.
+// ConfigProvenance maps each setting to the place its value came from, for
+// example "repoURL" -> "config-file" or "labels.role" -> "cli(--labels)".
 type ConfigProvenance map[string]string
 
-// fallbackNodeID is used only when the hostname cannot be determined. It is deliberately
-// not a plausible-looking node name, because a static default means every node that
-// reaches it registers under the same identity.
+// fallbackNodeID is used only when the hostname cannot be read. It looks wrong on
+// purpose: every node that falls back shares it, and an operator should notice.
 const fallbackNodeID = "agent-unknown"
 
-// defaultNodeID prefers the machine hostname so that agents stay distinguishable even
-// when nodeID is never configured.
+// defaultNodeID uses the hostname, so nodes stay distinguishable when nodeID is
+// never set.
 func defaultNodeID() (id string, fromHostname bool) {
 	if h, err := os.Hostname(); err == nil && h != "" {
 		return h, true
@@ -68,9 +68,10 @@ func defaultNodeID() (id string, fromHostname bool) {
 	return fallbackNodeID, false
 }
 
-// defaultWorkspaceDir matches StateDirectory=helvilette/agent in the unit. It was
-// /tmp/helvilette, which a reboot may wipe together with last_run_summary.json,
-// so a power cut mid-apply left no trace of the interrupted run. Issue #43.
+// defaultWorkspaceDir holds the agent's state, including last_run_summary.json,
+// the file that tells the agent after a crash that a run was cut off. It must
+// survive a reboot, so it is under /var/lib, never /tmp. The systemd unit
+// creates it (StateDirectory=helvilette/agent).
 const defaultWorkspaceDir = "/var/lib/helvilette/agent"
 
 // DefaultConfig returns the default agent configuration
@@ -107,9 +108,8 @@ func initDefaultConfig() (AgentConfiguration, ConfigProvenance) {
 	return config, provenance
 }
 
-// LoadConfig merges defaults, the environment, the YAML file and the CLI flags,
-// in rising precedence. The returned ConfigProvenance records which source won
-// each value, so the agent can report it at startup.
+// LoadConfig builds the configuration from all four places, in the order shown
+// at the top of this file, and says where each value came from.
 //
 //	cfg, provenance, err := LoadConfig(cliFlags{configFile: "/etc/helvilette/agent.yaml"})
 func LoadConfig(cli cliFlags) (AgentConfiguration, ConfigProvenance, error) {
@@ -127,8 +127,8 @@ func LoadConfig(cli cliFlags) (AgentConfiguration, ConfigProvenance, error) {
 	return config, provenance, nil
 }
 
-// requireRepoURL refuses to start an agent that has nothing to pull. It runs
-// after --print-config, so an operator can still inspect an incomplete setup.
+// requireRepoURL stops an agent that has no repository to pull. It is checked
+// after --print-config, so an operator can still print an incomplete setup.
 func requireRepoURL(config AgentConfiguration) error {
 	if config.RepoURL != "" {
 		return nil
@@ -137,9 +137,9 @@ func requireRepoURL(config AgentConfiguration) error {
 		"Set repoURL in agent.yaml, REPO_URL, or --repo-url, for example https://git.example.com/org/playbooks.git")
 }
 
-// fileConfigLayer reads the YAML config file. Unknown keys are errors, so a
-// misspelt key, or the removed othelaURL, fails at startup instead of leaving
-// the agent on defaults.
+// fileConfigLayer reads agent.yaml. An unknown key stops the agent, so a typo
+// fails loudly instead of the agent quietly running on a default. This also
+// rejects othelaURL, which the agent no longer has.
 func fileConfigLayer(path string) (configLayer, error) {
 	layer := configLayer{kind: fromFile, values: map[string]string{}}
 	if path == "" {
@@ -158,8 +158,8 @@ func fileConfigLayer(path string) (configLayer, error) {
 	return raw.layer(), nil
 }
 
-// rawConfigFile is agent.yaml as written: every value a string, parsed when
-// applied, so a bad duration names the source it came from.
+// rawConfigFile is agent.yaml as written. Values stay strings here and are
+// parsed later, so a bad pollInterval error can say it came from the file.
 type rawConfigFile struct {
 	RepoURL      string            `yaml:"repoURL"`
 	Branch       string            `yaml:"branch"`

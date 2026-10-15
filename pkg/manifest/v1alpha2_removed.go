@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// v1alpha1Leftovers captures the fields v1alpha2 removed (ADR-0009 D8). Strict
+// v1alpha1Leftovers captures the fields v1alpha2 removed. Strict
 // decoding would reject them anyway, but only as "field repo not found"; this
 // says what replaced each one. A yaml.Node field captures the value whatever
 // its type, and a non-zero Kind means the key was present. (yaml.v3 only
@@ -51,7 +51,7 @@ func checkRemovedFields(content []byte) error {
 	}
 	for _, f := range leftovers.removedFields() {
 		if f.node.Kind != 0 {
-			return fmt.Errorf("%s was removed in %s: %s. See ADR-0009 D8", f.field, APIVersionV1Alpha2, f.replacement)
+			return fmt.Errorf("%s was removed in %s: %s", f.field, APIVersionV1Alpha2, f.replacement)
 		}
 	}
 	return nil

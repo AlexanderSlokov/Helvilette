@@ -28,9 +28,9 @@ type NodeGroup struct {
 	NodeSelector map[string]string `yaml:"nodeSelector"`
 	Ansible      AnsibleConfig     `yaml:"ansible"`
 
-	// Probes is captured only so v1alpha2 can reject it by name: the key is
-	// reserved until probes have a schema (ADR-0009 D10). v1alpha1 ignores it,
-	// as it always has.
+	// Probes is captured only so v1alpha2 can reject it by name: probes have
+	// no schema yet, and a probe silently ignored would be worse than an error.
+	// v1alpha1 ignores it, as it always has.
 	Probes yaml.Node `yaml:"probes,omitempty" json:"-"`
 }
 

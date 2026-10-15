@@ -1,5 +1,5 @@
 // Tests for statefile.go: an atomic write leaves the old file or the new one,
-// and nothing else behind. Issue #43.
+// and nothing else behind.
 package main
 
 import (

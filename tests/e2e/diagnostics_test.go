@@ -7,8 +7,7 @@ import (
 
 // One Ansible JSON callback document, trimmed to the fields the parser reads.
 // Captured from a run where the baseline fixture named a package that does not
-// exist. Since ADR-0008 the agent saves this under runs/<playbook>.json instead
-// of sending it to Othela inside a report.
+// exist. The agent saves this as runs/<playbook>.json in its workspace.
 const failedRunOutput = `{"plays":[{"tasks":[
 {"task":{"name":"baseline-node : 1. Install chrony"},"hosts":{"localhost":{"failed":true,"msg":"No package matching 'chrony-nope' is available"}}},
 {"task":{"name":"baseline-node : 2. Template chrony.conf"},"hosts":{"localhost":{"changed":true}}}

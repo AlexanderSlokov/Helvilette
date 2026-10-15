@@ -1,9 +1,8 @@
-// Writing the agent's on-disk state so that a crash can never leave half a file.
+// Writing the agent's state files so that a crash never leaves half a file.
 //
-// ADR-0008 D4 requires that `kill -9` or a power cut at any instruction is
-// safe. A plain os.WriteFile truncates first and writes second, so dying in
-// between leaves an empty or partial file, and the next start reads garbage as
-// the last run. Issue #43.
+// The agent may be killed or lose power at any moment. A plain os.WriteFile
+// empties the file first and writes second; dying in between leaves an empty
+// or partial file, and the next start misreads the last run.
 package main
 
 import (

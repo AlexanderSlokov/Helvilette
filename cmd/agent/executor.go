@@ -1,9 +1,6 @@
-// Running one playbook with ansible-playbook and keeping what Ansible said.
-//
-// Split out of main.go, which exceeded the 500-line ceiling in AGENTS.md.
-// See BACKLOG 6.7. ExecutePlaybook was later split into one function per step
-// (issue #43), and then lost its job-resolution half when the agent stopped
-// receiving jobs from Othela: cycle.go now decides what runs (ADR-0008 D1).
+// Running one playbook with ansible-playbook, and keeping what Ansible printed
+// in <workspace>/runs/<playbook name>.json. Which playbooks run, and in what
+// order, is decided in cycle.go.
 package main
 
 import (
@@ -39,8 +36,8 @@ type ansibleRunner struct {
 	workspaceDir string
 }
 
-// extraVarsFileName lives in the workspace, not in the checkout. Writing it into
-// the repository dirtied the tree that git.EnsureRepo hard-resets. Issue #43.
+// extraVarsFileName is written to the workspace, never into the checkout: the
+// checkout must stay identical to the commit, and every sync resets it.
 const extraVarsFileName = "extra_vars.json"
 
 // Run executes the playbook and saves Ansible's output, whatever the result.
@@ -77,9 +74,9 @@ func (r ansibleRunner) command(run playbookRun) (*exec.Cmd, error) {
 // args returns the arguments after the executable. Separate from command so it
 // can be tested on a machine without Ansible.
 //
-// A plan-mode playbook runs with --check --diff and changes nothing: it is the
-// default for a playbook without `apply: auto` (ADR-0009 D4). Running a check
-// before every auto apply is the next BACKLOG step (ADR-0008 D9).
+// A playbook without `apply: auto` runs with --check --diff and changes
+// nothing. An `apply: auto` playbook is applied directly; running a check
+// first is not done yet.
 func (r ansibleRunner) args(run playbookRun) ([]string, error) {
 	args := []string{"-i", "localhost,", "-c", "local", run.file}
 	if run.mode != manifest.ApplyAuto {
@@ -99,8 +96,8 @@ func (r ansibleRunner) args(run playbookRun) ([]string, error) {
 }
 
 // writeExtraVars stores the group's variables in the workspace with mode 0600,
-// since extra_vars may carry credentials. The error used to be discarded, so
-// Ansible ran without the variables and nobody was told. Issue #43.
+// since extra_vars may carry credentials. If it cannot be written, nothing
+// runs: Ansible without its variables would do something nobody asked for.
 func (r ansibleRunner) writeExtraVars(vars map[string]string) (string, error) {
 	path := filepath.Join(r.workspaceDir, extraVarsFileName)
 	body, err := json.Marshal(vars)
@@ -113,9 +110,9 @@ func (r ansibleRunner) writeExtraVars(vars map[string]string) (string, error) {
 	return path, nil
 }
 
-// outputPath is where a playbook's latest Ansible output is kept. It replaces
-// the task log Othela used to receive in a report; the versioned run record is
-// a Phase 1 item. Mode 0600: a --diff can show secrets.
+// outputPath is where a playbook's latest Ansible output is kept, one file per
+// playbook, overwritten on every run. Mode 0600, because a --diff can show
+// secrets.
 func (r ansibleRunner) outputPath(run playbookRun) string {
 	name := strings.ReplaceAll(run.name, string(os.PathSeparator), "_")
 	return filepath.Join(r.workspaceDir, "runs", name+".json")

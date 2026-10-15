@@ -1,5 +1,5 @@
 // Tests for config.go: the precedence between a YAML file, the environment and
-// the flags, and the provenance each resolved value carries. See ADR-0001.
+// the flags, and the source each resolved value records.
 package main
 
 import (
@@ -33,7 +33,7 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("unexpected default PollInterval: %v", config.PollInterval)
 	}
 
-	// Regression for issue #43: /tmp may be wiped on reboot, taking the record of
+	// /tmp may be wiped on reboot, taking the record of
 	// an interrupted run with it.
 	if config.WorkspaceDir != "/var/lib/helvilette/agent" {
 		t.Errorf("unexpected default WorkspaceDir: %s", config.WorkspaceDir)
@@ -82,7 +82,7 @@ func writeConfigFile(t *testing.T, body string) string {
 }
 
 // The config file is an explicit, version-controlled artifact and outranks ambient
-// environment variables. See docs/informations/ADRs/ADR-0001.md.
+// environment variables, so what the file says is what the agent runs.
 
 func TestLoadConfig_YAMLOverridesEnv(t *testing.T) {
 	t.Setenv("REPO_URL", "git://from-env/playbooks")
@@ -210,7 +210,7 @@ nodeId: "node-01"
 	}
 }
 
-// othelaURL was removed outright with no deprecation (issue #43): a config that
+// othelaURL no longer exists, with no deprecation period: a config that
 // still sets it must fail rather than run on assumptions it no longer meets.
 func TestLoadConfig_RemovedOthelaURLIsRejected(t *testing.T) {
 	path := writeConfigFile(t, `othelaURL: "http://othela:8080/api/v1"

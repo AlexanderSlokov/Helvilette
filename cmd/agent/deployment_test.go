@@ -14,11 +14,9 @@ import (
 // only place the agent's flags are written down outside this package.
 const agentUnitPath = "../../tests/images/node/helvilette-agent.service"
 
-// TestAgentUnitFlagsExistOnTheCLI is the Agent half of the guard that already
-// protects Othela. Issue #33 was a deployment artifact passing a flag the binary
-// did not define, and nothing failed until a human started the stack by hand.
-// This could not be written until newRootCmd was separated from main, because a
-// command built inside main is unreachable from a test. See BACKLOG 6.7.
+// TestAgentUnitFlagsExistOnTheCLI fails when the systemd unit passes a flag the
+// agent does not define. Without it, a renamed or removed flag is only noticed
+// when the unit fails to start on a real machine.
 func TestAgentUnitFlagsExistOnTheCLI(t *testing.T) {
 	flags := longFlagsIn(execStartOf(t, agentUnitPath))
 	if len(flags) == 0 {
@@ -70,7 +68,7 @@ func longFlagsIn(command string) []string {
 // places. A native journal send does not inherit the unit's SyslogIdentifier= —
 // that applies to the stream transport only — so the binary derives its own. If
 // the two drift, `journalctl -t helvilette-agent` silently stops finding the
-// agents. See ADR-0007 D2.
+// agents.
 func TestAgentUnitIdentifierMatchesTheBinary(t *testing.T) {
 	want := log.IdentifierFor("/usr/local/bin/agent")
 

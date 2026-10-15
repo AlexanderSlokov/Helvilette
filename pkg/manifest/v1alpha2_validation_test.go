@@ -74,7 +74,7 @@ func TestValidateRepoManifest_RejectsDuplicatePlaybookNames(t *testing.T) {
 	assert.Contains(t, err.Error(), `spec.playbooks[1].name "baseline" is already used by spec.playbooks[0]`)
 }
 
-// ADR-0004 applies within each playbook, with the v1alpha2 field path.
+// Two groups with the same selector in one playbook are rejected, with the v1alpha2 field path.
 func TestValidateRepoManifest_RejectsIdenticalSelectorsWithinPlaybook(t *testing.T) {
 	m := validRepoManifest()
 	group := m.Spec.Playbooks[0].NodeGroups[0]
@@ -89,7 +89,7 @@ func TestValidateRepoManifest_RejectsIdenticalSelectorsWithinPlaybook(t *testing
 }
 
 // The same selector in two different playbooks is the normal case: a node
-// runs both, in order (ADR-0009 D6).
+// runs both, in order.
 func TestValidateRepoManifest_AllowsSameSelectorAcrossPlaybooks(t *testing.T) {
 	m := validRepoManifest()
 	second := m.Spec.Playbooks[0]

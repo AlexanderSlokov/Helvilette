@@ -62,6 +62,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   A config that still sets `othelaURL` is rejected. `repoURL` is required; the
   agent refuses to start without it and says how to set it.
 
+* Operator-facing messages from the agent and the manifest parser no longer
+  cite internal documents such as "ADR-0009 D9". They say what failed, what
+  was not done, and what to do. Code comments in the agent, `pkg/manifest`,
+  `pkg/git` and the e2e suite were rewritten the same way: the reason is stated
+  in place, without pointing to ADRs or issues. AGENTS.md records the rule.
+
 * **`git.EnsureRepo` clones again when the URL changes.** A fetch uses the URL
   stored in the existing checkout, not the one passed in, so a node whose
   `repoURL` changed would have kept pulling the old repository and reported

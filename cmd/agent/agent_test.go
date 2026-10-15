@@ -1,5 +1,5 @@
 // Tests for agent.go: the agent's wiring, and recovering from a run that a
-// crash, a kill or a power loss cut off (ADR-0008 D5).
+// crash, a kill or a power loss cut off.
 package main
 
 import (
@@ -35,7 +35,7 @@ func TestNewAgent_UsesGitAndAnsible(t *testing.T) {
 	}
 }
 
-// ADR-0008 D5: an in-progress record at startup means the last run was cut
+// An in-progress record at startup means the last run was cut
 // off. It is marked interrupted and the same commit runs again.
 func TestRecoverInterruptedRun_RerunsTheSameCommit(t *testing.T) {
 	agent, runner := cycleAgent(t, repoWith(t, "c1", twoPlaybooks))

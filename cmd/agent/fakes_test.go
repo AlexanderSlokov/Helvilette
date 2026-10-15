@@ -1,6 +1,5 @@
 // Named fakes for the agent's two external dependencies, Git and Ansible, so the
-// cycle can be tested without a Git server or Ansible installed (AGENTS.md:
-// mock external I/O with named fake classes).
+// cycle can be tested without a Git server or Ansible installed.
 package main
 
 import (

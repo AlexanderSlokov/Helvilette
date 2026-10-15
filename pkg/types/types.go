@@ -9,7 +9,7 @@ import (
 
 // Job represents a unit of work that Othela dispatches to an Agent.
 // A Job always references a playbook via Git (RepoURL + Version) or a local
-// path (PlaybookPath). Inline content delivery was removed; see issue #25.
+// path (PlaybookPath). Playbook content is never sent inline.
 type Job struct {
 	JobID        string            `json:"job_id"`
 	RepoURL      string            `json:"repo_url,omitempty"`      // git@github.com:org/playbooks.git
@@ -19,10 +19,10 @@ type Job struct {
 }
 
 // NodeStatus represents the current state of a node regarding its last run playbook.
-// It is recorded by the agent locally before execution and reported after completion.
+// The agent writes it before a run starts and again when the run ends.
 //
-// Since ADR-0008 the standalone agent fills JobID with its own run ID, and the
-// file on disk is the record; Othela no longer receives it.
+// The agent fills JobID with its own run ID. It writes this to
+// last_run_summary.json and sends it nowhere; Othela does not receive it.
 type NodeStatus struct {
 	JobID     string    `json:"job_id"`
 	CommitSHA string    `json:"commit_sha"`

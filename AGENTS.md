@@ -52,16 +52,15 @@ require to update documentation for Helvilette.
 
 ### Documentation and comments are docs-as-code
 
-Every document, artifact and code comment in this repository will be read: by
+Every document, artifact and code comment in this repository will be read by
 maintainers, by the owner, by other AI agents. Before writing one, ask: how do
 I explain this here so the reader does not have to dig through other documents?
 Write as if you were maintaining the Kubernetes documentation.
 
 - Give the essential context in place: what the thing is, why it exists, and
-  what happens at its edges. A link adds depth; it never replaces the
-  explanation.
+  what happens at its edges. Linking documents together will make a mess.
 - Define a project term the first time it appears in a document (for example
-  "run record", "plan mode", "Othela"), or link to where it is defined.
+  "run record", "plan mode", "Othela").
 - Name the exact value, field, file or command. Avoid "the config" or "this
   setting".
 - Keep the document true. When the code changes, update every document that
@@ -69,12 +68,17 @@ Write as if you were maintaining the Kubernetes documentation.
 
 ### Comments
 
-- Keep your own comments. Don't strip them on refactor — they carry
-  intent and provenance.
+- Write for a human reading the code for the first time. Explain what the
+  code cannot say by itself: the intent, the reason, the trap. Plain
+  sentences, no shorthand only the author understands.
 - Write WHY, not WHAT. Skip `// increment counter` above `i++`.
+- Do not point to ADRs, issues, BACKLOG sections or other files in a comment.
+  State the reason itself, in place. History ("this used to...", "fixed in
+  #43") belongs in the commit message, not in the code.
+- Operator-facing log lines and error messages never mention internal
+  documents. They say what failed, what was and was not done, and what to do.
 - Docstrings on public functions: intent + one usage example.
-- Reference issue numbers / commit SHAs when a line exists because
-  of a specific bug or upstream constraint.
+- Keep comments when refactoring if they still explain something true.
 
 ### Tests
 

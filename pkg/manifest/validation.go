@@ -6,9 +6,9 @@ import "fmt"
 //
 // The group is Helvilette's own DNS subdomain rather than a Kubernetes in-tree
 // group such as apps/v1, following the same convention k3s uses for its own
-// kinds (k3s.cattle.io/v1, helm.cattle.io/v1). The v1alpha1 suffix records that
-// spec.vault and nodeGroups[].probes are still declared-but-unenforced, so the
-// schema may still change. See ADR-0002 and issue #1.
+// kinds (k3s.cattle.io/v1, helm.cattle.io/v1). The v1alpha1 suffix says the
+// schema may still change: spec.vault and nodeGroups[].probes are accepted but
+// not acted on.
 const (
 	SupportedAPIVersion = "helvilette.naughtian.org/v1alpha1"
 	SupportedKind       = "PlaybookDeployment"
@@ -77,7 +77,7 @@ func validateNodeGroups(field string, groups []NodeGroup) error {
 // share an identical nodeSelector. Two groups with the same selector would
 // match the same nodes, but only one can be dispatched — the other is silently
 // dropped. Conflicting extra_vars or vault-password-file values make this a
-// specification error the operator must resolve. See ADR-0004 and issue #15.
+// specification error the operator must resolve.
 //
 // Scope: exact map equality only. Subset/superset overlap (e.g. {role: proxy}
 // vs. {role: proxy, tier: hot}) is deferred to v1beta1.
@@ -88,7 +88,7 @@ func validateNodeGroupSelectorUniqueness(field string, groups []NodeGroup) error
 				return fmt.Errorf(
 					"%s[%d] (%q) and %s[%d] (%q) have identical nodeSelector %v; "+
 						"only one would be dispatched, the other silently dropped. "+
-						"Give each group a distinct selector. See ADR-0004",
+						"Give each group a distinct selector",
 					field, i, groups[i].Name, field, j, groups[j].Name, groups[i].NodeSelector,
 				)
 			}

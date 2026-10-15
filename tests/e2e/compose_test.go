@@ -11,15 +11,14 @@ import (
 )
 
 // composeFile is the single definition of the e2e stack. The suite drives this
-// file rather than restating the topology in Go: the previous suite declared the
-// same four services the compose file did, and the pair had to be kept in step
-// by hand. Issue #33 is what that looks like when it fails. See ADR-0007.
+// file instead of describing the same services again in Go, so the two can
+// never disagree.
 const composeFile = "e2e.compose.yml"
 
-// agentNodes is every agent service in composeFile. node-2 (role=baseline) was
-// scaled down on purpose in 0e2e07c to save resources until Othela coordinates
-// several nodes again; see ADR-0008 D8. Bringing it back means re-adding the
-// service and its name here, and every spec that loops over agents follows.
+// agentNodes is every agent service in composeFile. The stack runs one agent
+// node to save resources; a second one (node-2, role=baseline) returns when
+// Othela coordinates several nodes again. To bring it back, add the service
+// to composeFile and its name here; every spec loops over this list.
 var agentNodes = []string{"node-1"}
 
 // upTimeout bounds `docker compose up --wait`. Generous because a cold run
@@ -101,7 +100,7 @@ func execIn(service string, args ...string) (string, error) {
 //
 // This is the operator path Helvilette is meant to support: `journalctl -t
 // 'helvilette*'` selects the product without knowing how its units were named,
-// and every field is addressable. See ADR-0007 D2.
+// and every field is addressable.
 func journal(service, identifier string) (string, error) {
 	return execIn(service, "journalctl", "--no-pager", "-t", identifier, "-o", "json")
 }
@@ -174,8 +173,7 @@ func journalOf(service string) string {
 }
 
 // agentRunsDir holds each playbook's latest Ansible output, one JSON file per
-// playbook, written by the agent since it stopped reporting to Othela
-// (ADR-0008 D1).
+// playbook. The agent keeps it on the node and sends it nowhere.
 const agentRunsDir = "/var/lib/helvilette/agent/runs"
 
 // agentRunReport returns a node's last_run_summary.json and every failed Ansible

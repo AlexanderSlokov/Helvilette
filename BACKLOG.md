@@ -401,6 +401,13 @@ free. Only what a large organisation needs may be sold.
 
 Carried from the archived backlog. Resolved items stay there.
 
+- [ ] Rewrite code comments and operator-facing messages that point to ADRs,
+      issues or BACKLOG sections, following the comment rules in AGENTS.md.
+      The agent, `pkg/manifest` v1alpha2, `pkg/git` and the e2e suite are
+      done. Left: `cmd/othela`, `pkg/log`, `pkg/playbook`, `pkg/storage`,
+      `pkg/manifest` v1alpha1 tests, the `Makefile`, and the deployment unit
+      files. Find them with `grep -rn "ADR-[0-9]\|issue #" --include=*.go .`.
+
 - [ ] e2e in CI, or document it as a manual pre-release step. Issue #24.
       Needs image layer caching and `timeout-minutes`. (was 6.5)
 - [x] `Agent.ExecutePlaybook` in `cmd/agent/executor.go` was about 110 lines.

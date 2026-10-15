@@ -1,5 +1,5 @@
 # The manifest the standalone agent reads from the root of this repository
-# (ADR-0009). node-1 pulls this repository directly; no Othela is involved.
+# (manifest v1alpha2). node-1 pulls this repository directly; no Othela is involved.
 #
 # apply: auto makes the e2e run change the node for real. Without it the
 # playbook would only plan (--check --diff), which is the default.

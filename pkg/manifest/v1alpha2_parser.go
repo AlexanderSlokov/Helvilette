@@ -11,9 +11,8 @@ import (
 )
 
 // ParseRepoManifest reads, decodes and validates the v1alpha2 helvilette.yml at
-// path. The os.ReadFile error is returned unwrapped so the agent can use
-// os.IsNotExist to fall back to <fqdn>.yml, <hostname>.yml, local.yml
-// (ADR-0009 D7).
+// path. The os.ReadFile error is returned unwrapped, so a caller can tell "no
+// file" (os.IsNotExist) from "broken file".
 //
 //	m, err := manifest.ParseRepoManifest(filepath.Join(checkout, "helvilette.yml"))
 func ParseRepoManifest(path string) (*RepoManifest, error) {
@@ -63,7 +62,7 @@ func checkSchemaIdentity(content []byte) error {
 	}
 	if id.APIVersion == SupportedAPIVersion {
 		return fmt.Errorf("apiVersion %q is the Othela fleet schema; the agent reads %q. "+
-			"Move spec.repo and spec.branch to agent.yaml and list playbooks under spec.playbooks. See ADR-0009",
+			"Move spec.repo and spec.branch to agent.yaml (repoURL, branch) and list playbooks under spec.playbooks",
 			id.APIVersion, APIVersionV1Alpha2)
 	}
 	return nil

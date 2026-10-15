@@ -1,11 +1,12 @@
-// The agent's lifecycle: recovering from an interrupted run, running one cycle
-// per poll interval, and watching the systemd units its playbooks manage.
+// The agent's life from start to stop:
 //
-// Split out of main.go, which exceeded the 500-line ceiling in AGENTS.md.
-// See BACKLOG 6.7. Before ADR-0008 this file registered with Othela, polled it
-// for jobs and sent reports back; RegisterNode blocked forever when Othela was
-// down. The agent now pulls its own repository (cycle.go), and the status file
-// on disk is the report. Issue #43.
+//  1. If the last run was cut off (crash, kill, power loss), mark it and run
+//     that commit again.
+//  2. Run one cycle now, then one every pollInterval. A cycle is in cycle.go.
+//  3. Log state changes of systemd units, when D-Bus is available.
+//
+// The agent talks to nothing but its Git server. What it did is written to
+// last_run_summary.json in its workspace.
 package main
 
 import (
@@ -36,9 +37,9 @@ type Agent struct {
 	config    AgentConfiguration
 	repo      repoSyncer
 	playbooks playbookRunner
-	// lastCommit is the commit the last cycle acted on. An unchanged commit is
-	// not run again, like ansible-pull --only-if-changed; periodic resync is a
-	// separate BACKLOG item. Empty after an interrupted run, so it re-runs.
+	// lastCommit is the commit the last cycle ran. A cycle that pulls the same
+	// commit again does nothing, like ansible-pull --only-if-changed. It is
+	// empty after an interrupted run, so that commit runs again.
 	lastCommit string
 }
 
@@ -87,10 +88,15 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-// recoverInterruptedRun reads the status the last process left. A run still
-// marked in progress was cut off by a crash, a kill or a power loss: it is
-// recorded as interrupted, and lastCommit stays empty so the next cycle runs
-// that commit again from the start (ADR-0008 D5).
+// recoverInterruptedRun reads the status the previous process left behind.
+//
+//   - No file: first start, nothing to do.
+//   - Unreadable file: warn; the next commit is treated as new.
+//   - A finished run (any status but InProgress): remember its commit, so it
+//     is not run again.
+//   - InProgress: the process died mid-run. Mark it "Failed (Interrupted)"
+//     and leave lastCommit empty, so the next cycle runs the commit again
+//     from the start. Playbooks are expected to be idempotent.
 func (a *Agent) recoverInterruptedRun() {
 	logger := a.logger()
 	last, err := a.readStatus()
@@ -142,8 +148,8 @@ func (a *Agent) writeStatus(status types.NodeStatus) error {
 	if err := os.MkdirAll(a.config.WorkspaceDir, 0755); err != nil {
 		return err
 	}
-	// Atomic, because this file is what detects an interrupted run after a
-	// crash; a crash while writing it must not destroy it. Issue #43.
+	// Atomic: this file is how the next start detects an interrupted run, so
+	// a crash while writing it must not leave it half-written.
 	return writeFileAtomic(a.statusFilePath(), data, 0644)
 }
 

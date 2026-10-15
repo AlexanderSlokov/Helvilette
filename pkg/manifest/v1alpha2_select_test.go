@@ -15,9 +15,9 @@ func selectionNames(selected []PlaybookSelection) []string {
 	return names
 }
 
-// ADR-0009 D6: every matching playbook, in file order.
+// Every matching playbook, in file order.
 func TestSelectPlaybooks_KeepsFileOrder(t *testing.T) {
-	m, err := DecodeRepoManifest([]byte(adr0009Example))
+	m, err := DecodeRepoManifest([]byte(exampleManifest))
 	require.NoError(t, err)
 
 	got := SelectPlaybooks(m, map[string]string{"managed": "true", "role": "edge-proxy"})
@@ -26,7 +26,7 @@ func TestSelectPlaybooks_KeepsFileOrder(t *testing.T) {
 }
 
 func TestSelectPlaybooks_SkipsPlaybooksThatDoNotMatch(t *testing.T) {
-	m, err := DecodeRepoManifest([]byte(adr0009Example))
+	m, err := DecodeRepoManifest([]byte(exampleManifest))
 	require.NoError(t, err)
 
 	got := SelectPlaybooks(m, map[string]string{"managed": "true"})
@@ -34,15 +34,15 @@ func TestSelectPlaybooks_SkipsPlaybooksThatDoNotMatch(t *testing.T) {
 	assert.Equal(t, []string{"baseline/all-nodes"}, selectionNames(got))
 }
 
-// ADR-0009 D9: no match is an empty result, not an error.
+// No match is an empty result, not an error.
 func TestSelectPlaybooks_ReturnsNothingForUnmatchedNode(t *testing.T) {
-	m, err := DecodeRepoManifest([]byte(adr0009Example))
+	m, err := DecodeRepoManifest([]byte(exampleManifest))
 	require.NoError(t, err)
 
 	assert.Empty(t, SelectPlaybooks(m, map[string]string{"role": "db"}))
 }
 
-// ADR-0009 D5: within one playbook, the first matching group wins.
+// Within one playbook, the first matching group wins.
 func TestSelectPlaybooks_FirstMatchingGroupWins(t *testing.T) {
 	m := validRepoManifest()
 	m.Spec.Playbooks[0].NodeGroups = []NodeGroup{

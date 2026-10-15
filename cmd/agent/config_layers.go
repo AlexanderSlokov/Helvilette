@@ -1,7 +1,6 @@
-// How each configuration source supplies values. Every setting is declared once
-// in configSettings with its name in each source, so the environment, the file
-// and the flags cannot drift apart when a setting is added, as they had to be
-// kept in step by hand before issue #43 added repoURL and branch.
+// Where each setting is read from. configSettings lists every setting once,
+// with its name in agent.yaml, as an environment variable and as a flag. Adding
+// a setting means adding one line there; all three places pick it up.
 package main
 
 import (
@@ -25,9 +24,9 @@ func setString(field func(*AgentConfiguration) *string) func(*AgentConfiguration
 	}
 }
 
-// setPollInterval rejects a bad duration from any source. Before issue #43 a bad
-// value in the environment or on the CLI was silently ignored, so the agent ran
-// on the default while the operator believed their value applied.
+// setPollInterval fails on a value that is not a duration, wherever it came
+// from. Ignoring it would leave the agent on the default while the operator
+// believes their value is in effect.
 func setPollInterval(c *AgentConfiguration, v string) error {
 	d, err := time.ParseDuration(v)
 	if err != nil {
@@ -45,8 +44,9 @@ var configSettings = []configSetting{
 	{"workspaceDir", "WORKSPACE_DIR", "workspace-dir", setString(func(c *AgentConfiguration) *string { return &c.WorkspaceDir })},
 }
 
-// labelsSetting only names where labels come from; they merge per key instead
-// of replacing each other.
+// labelsSetting only names where labels come from. Labels are not replaced as
+// a whole: each key is set separately, so env role=web plus flag env=prod
+// gives both.
 var labelsSetting = configSetting{key: "labels", envVar: "AGENT_LABELS", flag: "labels"}
 
 type layerKind int
@@ -68,16 +68,16 @@ func (k layerKind) sourceOf(s configSetting) string {
 	}
 }
 
-// configLayer is what one source supplied. An empty value means "not set
-// here", which is what lets a lower-precedence source win.
+// configLayer is what one place (env, file or flags) supplied. An empty value
+// means "not set here", so the value from a lower place is kept.
 type configLayer struct {
 	kind   layerKind
 	values map[string]string
 	labels map[string]string
 }
 
-// applyTo overlays this layer on config and records it as the source of every
-// value it set.
+// applyTo copies this layer's values over config and records this layer as
+// their source.
 func (l configLayer) applyTo(config *AgentConfiguration, provenance ConfigProvenance) error {
 	for _, s := range configSettings {
 		v := l.values[s.key]

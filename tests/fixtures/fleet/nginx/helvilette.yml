@@ -54,7 +54,7 @@ spec:
         # Sẽ được inject vào /dev/shm/nginx_collection_vault_secret.txt
         vault-password-file: nginx_collection_vault_secret
         # Các giá trị trong extra_vars sẽ được apiserver Othela truyền xuống cho agent 
-        # để override lại vars trong playbook. Lưu tại /var/lib/helvilette/agent/extra_vars.json (ngoài bản checkout git, issue #43)
+        # để override lại vars trong playbook. Lưu tại /var/lib/helvilette/agent/extra_vars.json (ngoài bản checkout git)
         extra_vars:
           nginx_http_port: "80"
           nginx_https_port: "443"

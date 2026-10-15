@@ -50,7 +50,7 @@ run-othela:
 run-othela-prod:
 	go run ./cmd/othela
 
-# The agent's default workspace is /var/lib/helvilette/agent (issue #43), which a
+# The agent's default workspace is /var/lib/helvilette/agent, which a
 # non-root developer cannot write, so local runs keep their state in the repo.
 AGENT_DEV_WORKSPACE ?= $(CURDIR)/.agent-workspace
 

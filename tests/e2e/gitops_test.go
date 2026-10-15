@@ -26,9 +26,8 @@ func othelaBase() string {
 }
 
 // The fleet repository carries one manifest per subdirectory: fleet/nginx and
-// fleet/baseline. Each points at its own playbook repository, which is the
-// separation ADR-0003 introduced and which the previous single-repo fixture
-// never exercised.
+// fleet/baseline. Each points at its own playbook repository. Only Othela reads
+// this repository; the agent pulls nginx-collection directly.
 const bakedManifestCount = 2
 
 // getJSON fetches a path off Othela and decodes it into out.
@@ -62,8 +61,8 @@ func playbookNames() ([]string, error) {
 	return names, nil
 }
 
-// agentStatusPath is the agent's own record of its last run. Since ADR-0008 it
-// replaces the report Othela used to receive.
+// agentStatusPath is the agent's own record of its last run. The agent sends
+// it nowhere; the specs read it from the node.
 const agentStatusPath = "/var/lib/helvilette/agent/last_run_summary.json"
 
 // agentRunStatus is the part of last_run_summary.json the specs assert on.
@@ -91,9 +90,9 @@ var _ = Describe("Fleet sync", func() {
 			Should(ConsistOf("nginx", "baseline"))
 	})
 
-	// Regression test for issue #32. Fleet sync used to resolve refs/heads/<branch>,
-	// which a fetch never advances, so Othela re-checked-out its clone-time commit
-	// on every poll and a manifest pushed after startup was never seen. See ADR-0005.
+	// A fetch never moves the local refs/heads/<branch>. Resolving the branch
+	// there would keep Othela on its clone-time commit forever, and a manifest
+	// pushed after startup would never be seen.
 	It("picks up a manifest committed after startup", func() {
 		before, err := playbookNames()
 		Expect(err).NotTo(HaveOccurred())
@@ -130,9 +129,9 @@ var _ = Describe("Fleet sync", func() {
 	})
 })
 
-// The agent pulls its own repository and needs no Othela (ADR-0008 D1). node-1
-// carries role=edge-proxy and pulls nginx-collection, whose root helvilette.yml
-// (v1alpha2, ADR-0009) selects the nginx playbook with extra_vars.
+// The agent pulls its own repository and needs no Othela. node-1 carries
+// role=edge-proxy and pulls nginx-collection, whose root helvilette.yml
+// (v1alpha2) selects the nginx playbook with extra_vars.
 var _ = Describe("Standalone agent", func() {
 	It("runs the playbook its labels select, from its own repository", func() {
 		for _, node := range agentNodes {
@@ -146,8 +145,8 @@ var _ = Describe("Standalone agent", func() {
 		}
 	})
 
-	// The headline of ADR-0008: the MiG-21 still flies when the ground station
-	// is gone. Othela is stopped, a commit is pushed, and the agent runs it.
+	// The point of the standalone agent: with Othela stopped, a pushed commit
+	// still reaches the node and runs. Othela is started again afterwards.
 	It("keeps pulling and running with Othela stopped", func() {
 		_, err := compose(time.Minute, "stop", "othela")
 		Expect(err).NotTo(HaveOccurred())
@@ -168,9 +167,8 @@ var _ = Describe("Standalone agent", func() {
 })
 
 var _ = Describe("Othela, frozen", func() {
-	// ADR-0006 in the running stack: the loader must account for every path it
-	// declined, not only report a count. Issue #34 was filed because a count of
-	// zero arrived with nothing to act on.
+	// The loader must say why it skipped each path, not only how many it loaded:
+	// a bare count of zero gives the operator nothing to act on.
 	It("accounts for the paths the loader skipped", func() {
 		logs, err := journal("othela", "helvilette-othela")
 		Expect(err).NotTo(HaveOccurred())
@@ -185,7 +183,6 @@ var _ = Describe("Othela, frozen", func() {
 var _ = Describe("Units and journald", func() {
 	// Helvilette manages systemd, so the e2e stack runs it under systemd. A
 	// foreground-process container cannot exercise either this or the journal.
-	// See ADR-0007 R2.
 	It("runs Othela and the agents as active systemd units", func() {
 		units := map[string]string{"othela": "helvilette-othela.service"}
 		for _, node := range agentNodes {
@@ -200,7 +197,7 @@ var _ = Describe("Units and journald", func() {
 
 	// The shared SyslogIdentifier prefix is what lets an operator select the whole
 	// product without knowing either unit name. It is also what a log collector
-	// filters on, which is the point of ADR-0007 R1.
+	// filters on.
 	It("exposes every component under a helvilette syslog identifier", func() {
 		for service, identifier := range map[string]string{
 			"othela": "helvilette-othela",
@@ -213,9 +210,9 @@ var _ = Describe("Units and journald", func() {
 		}
 	})
 
-	// The headline of ADR-0007 D2. Before it, every key sat inside one opaque
-	// MESSAGE, so a field query matched nothing and a collector needed a JSON
-	// parse stage before any of this was usable.
+	// Every log key must be its own journal field, so `journalctl NODE_ID=node-1`
+	// works. If the keys sat inside one JSON MESSAGE, a field query would match
+	// nothing.
 	It("makes Helvilette's own fields queryable", func() {
 		queries := []struct {
 			service, field, value string

@@ -29,7 +29,7 @@ func TestAnsibleRunnerArgs_AutoAppliesDirectly(t *testing.T) {
 	}
 }
 
-// ADR-0009 D4: plan changes nothing, so it runs as a check.
+// plan changes nothing, so it runs as a check.
 func TestAnsibleRunnerArgs_PlanRunsAsCheck(t *testing.T) {
 	args, err := ansibleRunner{workspaceDir: t.TempDir()}.args(runFor(manifest.ApplyPlan, manifest.AnsibleConfig{}))
 	if err != nil {
@@ -40,7 +40,7 @@ func TestAnsibleRunnerArgs_PlanRunsAsCheck(t *testing.T) {
 	}
 }
 
-// ADR-0009 D5: vault-password-file is a path on the node, passed through.
+// vault-password-file is a path on the node, passed through.
 func TestAnsibleRunnerArgs_PassesVaultPasswordFile(t *testing.T) {
 	run := runFor(manifest.ApplyAuto, manifest.AnsibleConfig{VaultPasswordFile: "/etc/helvilette/vault-pass"})
 
@@ -53,8 +53,8 @@ func TestAnsibleRunnerArgs_PassesVaultPasswordFile(t *testing.T) {
 	}
 }
 
-// Regression for issue #43: extra_vars were written into the Git checkout,
-// dirtying the tree EnsureRepo resets, and the write error was discarded.
+// extra_vars go to the workspace, not the Git checkout, with mode 0600 because
+// they may hold credentials.
 func TestAnsibleRunnerArgs_WritesExtraVarsInWorkspace(t *testing.T) {
 	runner := ansibleRunner{workspaceDir: t.TempDir()}
 	run := runFor(manifest.ApplyAuto, manifest.AnsibleConfig{ExtraVars: map[string]string{"nginx_http_port": "80"}})

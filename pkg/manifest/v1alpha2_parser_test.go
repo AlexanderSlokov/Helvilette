@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The example from ADR-0009 D3, so the record and the parser cannot disagree.
-const adr0009Example = `
+// A complete v1alpha2 manifest: baseline applies on its own, web only plans.
+const exampleManifest = `
 apiVersion: helvilette.naughtian.org/v1alpha2
 kind: PlaybookDeployment
 metadata:
@@ -42,7 +42,7 @@ spec:
 `
 
 func TestDecodeRepoManifest_AcceptsADRExample(t *testing.T) {
-	m, err := DecodeRepoManifest([]byte(adr0009Example))
+	m, err := DecodeRepoManifest([]byte(exampleManifest))
 	require.NoError(t, err)
 
 	require.Len(t, m.Spec.Playbooks, 2)
@@ -73,7 +73,7 @@ func TestDecodeRepoManifest_PointsV1Alpha1AtTheMigration(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Othela fleet schema")
-	assert.Contains(t, err.Error(), "ADR-0009")
+	assert.Contains(t, err.Error(), "spec.playbooks")
 }
 
 func TestDecodeRepoManifest_NamesReplacementForRemovedFields(t *testing.T) {
@@ -99,7 +99,7 @@ func TestDecodeRepoManifest_NamesReplacementForRemovedFields(t *testing.T) {
 // A misspelt key must fail loudly: `aply: auto` silently read as plan would
 // look like a Helvilette bug to the operator.
 func TestDecodeRepoManifest_RejectsUnknownKeys(t *testing.T) {
-	_, err := DecodeRepoManifest([]byte(adr0009Example + "      aply: auto\n"))
+	_, err := DecodeRepoManifest([]byte(exampleManifest + "      aply: auto\n"))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "aply")
@@ -120,7 +120,7 @@ func TestDecodeRepoManifest_ReportsBrokenYAML(t *testing.T) {
 }
 
 func TestDecodeRepoManifest_RejectsProbesByName(t *testing.T) {
-	withProbes := adr0009Example + "          probes:\n            nginx.service: {}\n"
+	withProbes := exampleManifest + "          probes:\n            nginx.service: {}\n"
 
 	_, err := DecodeRepoManifest([]byte(withProbes))
 

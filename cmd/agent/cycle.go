@@ -1,7 +1,12 @@
-// One cycle of the standalone agent: pull the repository, read the
-// helvilette.yml at its root, select the playbooks for this node's labels, and
-// run them in file order, stopping at the first failure. This replaces polling
-// Othela for a job (ADR-0008 D1, ADR-0009 D6, D9; issue #43).
+// One cycle of the agent:
+//
+//  1. Pull repoURL at branch into <workspace>/checkout.
+//  2. Stop if this commit already ran.
+//  3. Read helvilette.yml at the repository root.
+//  4. Pick every playbook with a nodeGroup matching this node's labels.
+//  5. Run them in the order they appear in the file. The first failure stops
+//     the rest, because a later playbook may rely on an earlier one.
+//  6. Write the outcome to last_run_summary.json.
 package main
 
 import (
@@ -16,7 +21,8 @@ import (
 	"helvilette/pkg/types"
 )
 
-// manifestFileName is read only at the repository root (ADR-0009 D1).
+// manifestFileName is only looked for at the repository root, never in
+// subdirectories.
 const manifestFileName = "helvilette.yml"
 
 // repoSyncer is the one Git operation the agent needs: make dir a checkout of
@@ -25,7 +31,8 @@ type repoSyncer interface {
 	Sync(url, dir, ref string) (commit string, err error)
 }
 
-// gitRepoSyncer syncs with pkg/git, which hard-resets local changes (ADR-0005).
+// gitRepoSyncer syncs with pkg/git. Local edits in the checkout are discarded
+// on every sync: the repository is the only truth.
 type gitRepoSyncer struct{}
 
 func (gitRepoSyncer) Sync(url, dir, ref string) (string, error) {
@@ -37,7 +44,7 @@ func (a *Agent) checkoutDir() string {
 }
 
 // runCycle pulls and, when the commit is new, runs it. A commit that already
-// ran, whatever its result, waits for the next commit.
+// ran is not run again, even if it failed: the fix is a new commit.
 func (a *Agent) runCycle() {
 	logger := a.logger()
 	if err := a.ensureWorkspace(); err != nil {
@@ -58,9 +65,8 @@ func (a *Agent) runCycle() {
 	a.lastCommit = commit
 }
 
-// ensureWorkspace creates the workspace, and says how to point it elsewhere
-// when it cannot: since issue #43 the default is under /var/lib, which a
-// non-root developer cannot write.
+// ensureWorkspace creates the workspace. The default is under /var/lib, which
+// only root can write, so the error says how to choose another directory.
 func (a *Agent) ensureWorkspace() error {
 	if err := os.MkdirAll(a.config.WorkspaceDir, 0755); err != nil {
 		return fmt.Errorf("cannot create workspace %q: %w; nothing was run. "+
@@ -81,7 +87,9 @@ func (a *Agent) runCommit(commit string) {
 	}
 	if len(selections) == 0 {
 		a.finishRun(status, statusNothingSelected, fmt.Sprintf(
-			"no nodeGroup in %s matches this node's labels %v; nothing was run (ADR-0009 D9)", manifestFileName, a.config.Labels))
+			"no nodeGroup in %s matches this node's labels %v; nothing was run. "+
+				"If this node should run something, add its labels to a nodeSelector, or change its labels",
+			manifestFileName, a.config.Labels))
 		return
 	}
 	status.Status = statusInProgress
@@ -96,7 +104,8 @@ func (a *Agent) selectPlaybooks() ([]manifest.PlaybookSelection, error) {
 	m, err := manifest.ParseRepoManifest(filepath.Join(a.checkoutDir(), manifestFileName))
 	if os.IsNotExist(err) {
 		return nil, fmt.Errorf("the repository has no %s at its root, so nothing was run. "+
-			"Add one (ADR-0009); the ansible-pull fallback to <fqdn>.yml, <hostname>.yml, local.yml is not implemented yet",
+			"Add one that lists your playbooks. Picking <fqdn>.yml, <hostname>.yml or local.yml "+
+			"without it, as ansible-pull does, is not supported yet",
 			manifestFileName)
 	}
 	if err != nil {
@@ -106,7 +115,7 @@ func (a *Agent) selectPlaybooks() ([]manifest.PlaybookSelection, error) {
 }
 
 // runSelections runs each selection in order and stops at the first failure,
-// because a later playbook may depend on an earlier one (ADR-0009 D6).
+// because a later playbook may depend on an earlier one.
 func (a *Agent) runSelections(runID string, selections []manifest.PlaybookSelection) (status, reason string) {
 	for i, selection := range selections {
 		if !a.playbooks.Run(a.playbookRunFor(runID, selection)) {
@@ -128,7 +137,7 @@ func (a *Agent) playbookRunFor(runID string, selection manifest.PlaybookSelectio
 }
 
 // failureReason names the playbook that failed and every one skipped after it,
-// so the record says what did not run and why (ADR-0009 D6).
+// so the record says what did not run and why.
 func failureReason(selections []manifest.PlaybookSelection, failed int) string {
 	reason := fmt.Sprintf("playbook %q failed", selections[failed].Entry.Name)
 	var skipped []string

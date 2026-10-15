@@ -58,7 +58,7 @@ func validatePlaybookEntry(field string, entry PlaybookEntry) error {
 
 // validatePlaybookPath keeps the playbook inside the checkout. The repository
 // is the only thing a signed commit vouches for; a path out of it would run a
-// file nobody signed (ADR-0009 D3).
+// file nobody signed.
 func validatePlaybookPath(field, path string) error {
 	if path == "" {
 		return fmt.Errorf("%s.playbook is empty, expected a repo-relative path such as %q", field, "baseline.yml")
@@ -78,11 +78,11 @@ func validateApplyMode(field string, mode ApplyMode) error {
 }
 
 // rejectReservedProbes refuses probes by name until they have a schema, so a
-// probe the operator wrote is never silently ignored (ADR-0009 D10).
+// probe the operator wrote is never silently ignored.
 func rejectReservedProbes(field string, groups []NodeGroup) error {
 	for i, group := range groups {
 		if group.Probes.Kind != 0 {
-			return fmt.Errorf("%s[%d] (%q) declares probes, which are not supported yet; the key is reserved until probes have a schema (ADR-0009 D10). Remove it for now", field, i, group.Name)
+			return fmt.Errorf("%s[%d] (%q) declares probes, which are not supported yet; remove the probes key for now", field, i, group.Name)
 		}
 	}
 	return nil

@@ -8,9 +8,9 @@ type PlaybookSelection struct {
 }
 
 // SelectPlaybooks returns, in file order, every playbook that targets a node
-// with these labels, each with its first matching nodeGroup (ADR-0009 D5, D6).
-// An empty result means the node runs nothing, which is a declared state, not
-// an error (D9).
+// with these labels, each with its first matching nodeGroup.
+// An empty result means the node runs nothing, which is a normal state, not an
+// error.
 //
 //	for _, s := range manifest.SelectPlaybooks(m, map[string]string{"role": "edge-proxy"}) { ... }
 func SelectPlaybooks(m *RepoManifest, labels map[string]string) []PlaybookSelection {
@@ -24,7 +24,8 @@ func SelectPlaybooks(m *RepoManifest, labels map[string]string) []PlaybookSelect
 }
 
 // firstMatchingGroup keeps v1alpha1's rule: file order wins when several
-// groups match. Rejecting overlapping subsets is deferred by ADR-0004.
+// groups match. Overlapping selectors such as {role: proxy} and
+// {role: proxy, tier: hot} are allowed; the one written first wins.
 func firstMatchingGroup(groups []NodeGroup, labels map[string]string) (NodeGroup, bool) {
 	for _, group := range groups {
 		if isSubset(group.NodeSelector, labels) {
