@@ -62,6 +62,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   A config that still sets `othelaURL` is rejected. `repoURL` is required; the
   agent refuses to start without it and says how to set it.
 
+* **`git.EnsureRepo` clones again when the URL changes.** A fetch uses the URL
+  stored in the existing checkout, not the one passed in, so a node whose
+  `repoURL` changed would have kept pulling the old repository and reported
+  success. The agent now keeps one `checkout` directory whatever the URL, which
+  is what exposed this. A checkout whose `origin` differs from the requested
+  URL is discarded and cloned again, with a warning naming both URLs. Othela's
+  fleet cache gets the same behaviour. (#43)
+
 * An invalid `pollInterval` from the environment or the CLI is now an error
   naming its source. It used to be ignored silently, leaving the agent on the
   default.

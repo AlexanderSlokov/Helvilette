@@ -66,6 +66,9 @@ func openOrCloneRepo(url, destDir string) (*git.Repository, error) {
 	if err != nil {
 		return recloneUnusable(url, destDir, err)
 	}
+	if stored := originURL(repo); stored != url {
+		return recloneForNewURL(url, destDir, stored)
+	}
 
 	if err := fetchRemote(repo, destDir); err != nil {
 		return nil, err
@@ -95,11 +98,36 @@ func recloneUnusable(url, destDir string, openErr error) (*git.Repository, error
 	logger.Warn().Err(openErr).Str("dest_dir", destDir).
 		Msg("fleet cache is not a readable git repository, discarding it and cloning again")
 
-	if err := os.RemoveAll(destDir); err != nil {
-		return nil, fmt.Errorf("failed to discard unusable repo at %s: %w", destDir, err)
-	}
+	return discardAndClone(url, destDir)
+}
 
+// recloneForNewURL replaces a checkout cloned from a different URL. A fetch
+// uses the URL stored in the checkout, not the one passed in, so without this
+// a node whose repoURL changed kept pulling the old repository and reported
+// success: the "runs but wrong" state Law 0 forbids. The agent keeps one
+// checkout directory whatever the URL, which is what exposed it (issue #43).
+func recloneForNewURL(url, destDir, stored string) (*git.Repository, error) {
+	logger.Warn().Str("dest_dir", destDir).Str("stored_url", stored).Str("url", url).
+		Msg("checkout was cloned from a different URL, discarding it and cloning the configured one")
+
+	return discardAndClone(url, destDir)
+}
+
+func discardAndClone(url, destDir string) (*git.Repository, error) {
+	if err := os.RemoveAll(destDir); err != nil {
+		return nil, fmt.Errorf("failed to discard repo at %s: %w", destDir, err)
+	}
 	return cloneRepo(url, destDir)
+}
+
+// originURL returns the URL the checkout fetches from, or "" if it has none,
+// which also counts as different from any configured URL.
+func originURL(repo *git.Repository) string {
+	remote, err := repo.Remote(remoteName)
+	if err != nil || len(remote.Config().URLs) == 0 {
+		return ""
+	}
+	return remote.Config().URLs[0]
 }
 
 func fetchRemote(repo *git.Repository, destDir string) error {

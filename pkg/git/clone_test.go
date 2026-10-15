@@ -258,3 +258,29 @@ func TestEnsureRepo_EmptyRefUsesTheClonedBranch(t *testing.T) {
 		t.Errorf("EnsureRepo = %s, want the branch tip %s", got, want)
 	}
 }
+
+// Regression for a bug found while making the agent keep one checkout
+// directory (issue #43): a fetch uses the URL stored in the checkout, so a
+// changed URL kept pulling the old repository.
+func TestEnsureRepo_ReclonesWhenURLChanges(t *testing.T) {
+	first := newSourceRepo(t)
+	first.commitFile("first.txt", "1")
+	second := newSourceRepo(t)
+	want := second.commitFile("second.txt", "2")
+	cacheDir := filepath.Join(t.TempDir(), "cache")
+
+	if _, err := EnsureRepo(first.dir, cacheDir, ""); err != nil {
+		t.Fatalf("first EnsureRepo: %v", err)
+	}
+	got, err := EnsureRepo(second.dir, cacheDir, "")
+	if err != nil {
+		t.Fatalf("EnsureRepo with the new URL: %v", err)
+	}
+
+	if got != want {
+		t.Errorf("resolved %s, want %s from the new URL", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "first.txt")); !os.IsNotExist(err) {
+		t.Errorf("first.txt from the old repository is still in the checkout")
+	}
+}
